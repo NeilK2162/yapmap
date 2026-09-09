@@ -1,0 +1,25 @@
+# generated canvases (cached Claude output, keyed by video id)
+.cache/
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+*.egg-info/
+
+# local tooling / editors
+.claude/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# env
+.env
+.env.local
+
+# static/fonts/ IS committed: Luckiest Guy ships under Apache 2.0 alongside
+# its LICENSE. Before adding another font, check that its licence permits
+# redistribution -- a public repo redistributes everything in it.

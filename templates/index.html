@@ -1,0 +1,1182 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>yapmap — turn the yap into a map</title>
+<meta name="description" content="Paste a YouTube link, get a canvas: interactive mindmap, sticky notes, summary and timestamped receipts you can download." />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+/* ─────────────────────────────────────────────────────────
+   yapmap — design tokens
+   ───────────────────────────────────────────────────────── */
+/* Display face, self-hosted. Luckiest Guy by Astigmatic, Apache 2.0 -- the
+   licence ships next to it in static/fonts/. Declaring the range 400-700 maps
+   every heading weight onto the single master instead of faking a bold, while
+   the fallback stack keeps its real 700. It carries no arrows or ticks, so
+   those glyphs fall back individually. */
+@font-face{
+  font-family:'Luckiest Guy';
+  src:url('/static/fonts/LuckiestGuy-Regular.ttf') format('truetype');
+  font-weight:400 700;
+  font-style:normal;
+  font-display:swap;
+}
+:root{
+  --void:#0d0d18;
+  --panel:#1a1a29;
+  --panel-2:#242437;
+  --line:#3a3a55;
+  --ink:#ffffff;
+  --haze:#b9b7d4;
+  --faint:#8482a8;
+
+  --lime:#e2ff57;
+  --pink:#ff74dc;
+  --cyan:#5eeaff;
+  --violet:#bda2ff;
+  --orange:#ffb85c;
+  --accent:var(--lime);
+
+  --r:18px;
+  --shadow:6px 6px 0 rgba(0,0,0,.55);
+  --display:'Luckiest Guy','Space Grotesk',-apple-system,BlinkMacSystemFont,'Segoe UI',Inter,sans-serif;
+  --font:'Space Grotesk',-apple-system,BlinkMacSystemFont,'Segoe UI',Inter,sans-serif;
+  --mono:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+*{box-sizing:border-box}
+/* A class with `display` beats the UA's `[hidden]{display:none}`, so every
+   hidden toggle in the JS needs this to actually hide. */
+[hidden]{display:none!important}
+html,body{margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{
+  background:var(--void);color:var(--ink);font-family:var(--font);
+  -webkit-font-smoothing:antialiased;overflow-x:hidden;min-height:100vh;
+}
+/* atmospheric blobs + grain */
+.blobs{position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden}
+.blob{position:absolute;border-radius:50%;filter:blur(90px);opacity:.42}
+.blob.a{width:52vw;height:52vw;background:#6d28d9;top:-16vw;left:-12vw;animation:drift 26s ease-in-out infinite}
+.blob.b{width:44vw;height:44vw;background:#0891b2;top:24vh;right:-14vw;animation:drift 32s ease-in-out infinite reverse}
+.blob.c{width:36vw;height:36vw;background:#a3e635;bottom:-14vw;left:26vw;opacity:.24;animation:drift 38s ease-in-out infinite}
+@keyframes drift{0%,100%{transform:translate(0,0) scale(1)}33%{transform:translate(5vw,-4vh) scale(1.1)}66%{transform:translate(-4vw,5vh) scale(.94)}}
+.grain{
+  position:fixed;inset:0;z-index:1;pointer-events:none;opacity:.16;mix-blend-mode:overlay;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+.wrap{position:relative;z-index:2}
+
+/* ── nav ───────────────────────────────────────────────── */
+.nav{
+  position:sticky;top:0;z-index:60;display:flex;align-items:center;gap:16px;
+  padding:14px 22px;backdrop-filter:blur(14px);
+  background:rgba(13,13,24,.78);border-bottom:1px solid var(--line);
+}
+.mark{display:flex;align-items:baseline;gap:2px;font-weight:700;font-size:22px;letter-spacing:-.04em}
+.mark .y{background:linear-gradient(96deg,var(--lime),var(--cyan) 55%,var(--pink));-webkit-background-clip:text;background-clip:text;color:transparent}
+.mark .blink{width:8px;height:8px;border-radius:50%;background:var(--lime);margin-left:5px;align-self:center;animation:blink 2.4s ease-in-out infinite}
+@keyframes blink{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.35;transform:scale(.75)}}
+.tag{
+  font-family:var(--mono);font-size:10.5px;color:var(--haze);border:1px solid var(--line);
+  padding:4px 9px;border-radius:999px;white-space:nowrap;
+}
+.nav .spacer{flex:1}
+.powered{font-family:var(--mono);font-size:11px;color:var(--faint);white-space:nowrap}
+.powered b{color:var(--haze);font-weight:600}
+.nav-btn{
+  font-family:var(--font);font-size:12.5px;font-weight:600;color:var(--ink);cursor:pointer;
+  background:var(--panel-2);border:1px solid var(--line);border-radius:999px;padding:7px 14px;
+}
+.nav-btn:hover{border-color:var(--accent);color:var(--accent)}
+
+/* ── hero ──────────────────────────────────────────────── */
+.hero{max-width:960px;margin:0 auto;padding:76px 22px 40px;text-align:center}
+.kicker{
+  display:inline-block;font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--lime);border:1px solid rgba(226,255,87,.42);background:rgba(226,255,87,.10);
+  padding:7px 15px;border-radius:999px;margin-bottom:26px;
+}
+.hero h1{
+  font-size:clamp(46px,9.2vw,104px);line-height:.90;letter-spacing:-.055em;font-weight:700;
+  margin:0 0 22px;
+}
+.hero h1 em{
+  font-style:normal;
+  background:linear-gradient(96deg,var(--lime),var(--cyan) 48%,var(--pink));
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+}
+.hero .sub{font-size:clamp(15px,2.1vw,19px);color:var(--haze);max-width:560px;margin:0 auto 34px;line-height:1.55}
+.hero .sub b{color:var(--ink);font-weight:600}
+
+.drop{display:flex;gap:10px;max-width:660px;margin:0 auto;flex-wrap:wrap}
+.drop input{
+  flex:1;min-width:250px;padding:17px 20px;font-family:var(--font);font-size:15.5px;
+  background:var(--panel);color:var(--ink);border:2px solid var(--line);border-radius:var(--r);
+  transition:border-color .18s,box-shadow .18s;
+}
+.drop input::placeholder{color:var(--faint)}
+.drop input:focus{outline:none;border-color:var(--lime);box-shadow:0 0 0 4px rgba(226,255,87,.16)}
+.cta{
+  padding:17px 26px;font-size:15.5px;font-weight:700;letter-spacing:-.02em;
+  background:var(--lime);color:#0a0a0a;border:2px solid var(--lime);border-radius:var(--r);
+  cursor:pointer;white-space:nowrap;box-shadow:4px 4px 0 rgba(226,255,87,.30);
+  transition:transform .12s,box-shadow .12s;
+}
+.cta:hover:not(:disabled){transform:translate(-2px,-2px);box-shadow:7px 7px 0 rgba(226,255,87,.38)}
+.cta:active:not(:disabled){transform:translate(2px,2px);box-shadow:1px 1px 0 rgba(226,255,87,.30)}
+.cta:disabled{opacity:.5;cursor:not-allowed}
+.hint{margin-top:16px;font-family:var(--mono);font-size:11.5px;color:var(--faint)}
+
+.recents{margin-top:30px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap;align-items:center}
+.recents .lbl{font-family:var(--mono);font-size:10.5px;color:var(--faint);text-transform:uppercase;letter-spacing:.1em}
+.chip{
+  font-size:12.5px;color:var(--haze);background:var(--panel);border:1px solid var(--line);
+  border-radius:999px;padding:6px 13px;cursor:pointer;max-width:260px;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap;
+}
+.chip:hover{border-color:var(--cyan);color:var(--ink)}
+
+/* how it works */
+.how{max-width:900px;margin:64px auto 0;padding:0 22px;display:grid;gap:14px;grid-template-columns:repeat(3,1fr)}
+.how .step{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:20px}
+.how .n{font-family:var(--mono);font-size:11px;color:var(--accent);margin-bottom:9px}
+.how h4{margin:0 0 6px;font-size:15.5px;letter-spacing:-.02em}
+.how p{margin:0;font-size:13.5px;color:var(--haze);line-height:1.5}
+
+/* marquee */
+.marquee{
+  margin-top:64px;border-top:1px solid var(--line);border-bottom:1px solid var(--line);
+  padding:15px 0;overflow:hidden;background:rgba(17,17,25,.5);
+}
+.marquee .track{display:flex;gap:34px;width:max-content;animation:slide 34s linear infinite}
+.marquee span{font-family:var(--mono);font-size:12.5px;color:var(--faint);white-space:nowrap;text-transform:lowercase}
+.marquee span::after{content:'✦';margin-left:34px;color:var(--lime);opacity:.55}
+@keyframes slide{from{transform:translateX(0)}to{transform:translateX(-50%)}}
+
+/* ── loading ───────────────────────────────────────────── */
+.loading{max-width:620px;margin:0 auto;padding:110px 22px;text-align:center}
+.orb{
+  width:74px;height:74px;margin:0 auto 30px;border-radius:50%;
+  background:conic-gradient(from 0deg,var(--lime),var(--cyan),var(--pink),var(--violet),var(--lime));
+  animation:spin 1.5s linear infinite;
+  -webkit-mask:radial-gradient(circle,transparent 55%,#000 57%);
+  mask:radial-gradient(circle,transparent 55%,#000 57%);
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+.loading h2{font-size:clamp(24px,4.4vw,34px);margin:0 0 12px;letter-spacing:-.035em;min-height:1.2em}
+.loading p{color:var(--haze);font-size:14px;margin:0 0 8px}
+.loading .clock{font-family:var(--mono);font-size:12px;color:var(--faint)}
+
+/* ── error ─────────────────────────────────────────────── */
+.error{max-width:600px;margin:80px auto;padding:0 22px}
+.error .card{background:rgba(255,92,200,.06);border:2px solid rgba(255,92,200,.4);border-radius:var(--r);padding:26px}
+.error h3{margin:0 0 10px;font-size:23px;letter-spacing:-.03em}
+.error p{margin:0 0 18px;color:var(--haze);font-size:14px;line-height:1.6;word-break:break-word}
+.ghost{
+  font-family:var(--font);font-size:13.5px;font-weight:600;color:var(--ink);cursor:pointer;
+  background:transparent;border:2px solid var(--line);border-radius:12px;padding:10px 18px;
+}
+.ghost:hover{border-color:var(--accent);color:var(--accent)}
+
+/* ── canvas ────────────────────────────────────────────── */
+.canvas{max-width:1180px;margin:0 auto;padding:44px 22px 200px}
+
+.crown{
+  position:relative;background:var(--panel);border:2px solid var(--line);border-radius:26px;
+  padding:38px 34px;margin-bottom:56px;overflow:hidden;
+}
+.crown::before{
+  content:'';position:absolute;inset:0;pointer-events:none;
+  background:radial-gradient(660px 220px at 12% -20%,color-mix(in srgb,var(--accent) 16%,transparent),transparent 70%);
+}
+.sticker{
+  position:absolute;top:20px;right:22px;transform:rotate(7deg);
+  font-family:var(--mono);font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.12em;
+  background:var(--accent);color:#0a0a0a;padding:8px 14px;border-radius:8px;
+  box-shadow:3px 3px 0 rgba(0,0,0,.5);
+}
+.crown h2{
+  font-size:clamp(28px,4.6vw,46px);line-height:1.04;letter-spacing:-.045em;margin:0 0 18px;
+  max-width:82%;position:relative;
+}
+.tldr{
+  position:relative;font-size:clamp(15px,2vw,18.5px);line-height:1.55;color:var(--ink);
+  border-left:4px solid var(--accent);padding:4px 0 4px 18px;margin:0 0 24px;max-width:760px;
+}
+.meta{position:relative;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.pill{
+  font-family:var(--mono);font-size:10.5px;color:var(--haze);background:var(--panel-2);
+  border:1px solid var(--line);border-radius:999px;padding:6px 12px;
+}
+.pill.live{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 45%,transparent)}
+.crown-actions{position:relative;display:flex;gap:9px;margin-top:22px;flex-wrap:wrap}
+
+/* section shell */
+.sec{margin-bottom:60px;scroll-margin-top:80px}
+.sec-head{display:flex;align-items:flex-end;gap:14px;margin-bottom:20px;flex-wrap:wrap}
+.sec-n{font-family:var(--mono);font-size:11px;color:var(--accent);padding-bottom:6px;letter-spacing:.1em}
+.sec-head h3{font-size:clamp(23px,3.4vw,33px);letter-spacing:-.04em;margin:0;line-height:1}
+.sec-head .say{font-size:13px;color:var(--haze);padding-bottom:3px;flex:1;min-width:200px}
+.sec-head .tools{display:flex;gap:8px}
+.mini{
+  font-family:var(--mono);font-size:11px;color:var(--haze);cursor:pointer;
+  background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:7px 11px;
+}
+.mini:hover{border-color:var(--accent);color:var(--accent)}
+.mini.on{background:var(--accent);color:#0a0a0a;border-color:var(--accent)}
+
+/* the map */
+.map-card{
+  background:var(--panel);border:2px solid var(--line);border-radius:var(--r);
+  height:560px;position:relative;overflow:hidden;
+}
+.map-card.full{position:fixed;inset:14px;height:auto;z-index:120;box-shadow:0 30px 90px rgba(0,0,0,.75)}
+#map-svg{width:100%;height:100%;display:block;color:var(--ink);font-family:var(--font)}
+#map-svg .markmap-foreign{color:var(--ink)}
+#map-svg .markmap-foreign div{color:var(--ink)}
+#map-svg .markmap-foreign code{background:rgba(255,255,255,.09);padding:1px 5px;border-radius:5px;font-family:var(--mono);font-size:.86em}
+.map-tools{position:absolute;top:12px;right:12px;display:flex;gap:7px;z-index:3}
+.map-legend{
+  position:absolute;left:14px;bottom:12px;font-family:var(--mono);font-size:10.5px;color:var(--faint);
+  pointer-events:none;
+}
+
+/* the wall */
+.wall{display:grid;gap:18px;grid-template-columns:repeat(auto-fill,minmax(244px,1fr))}
+.note{
+  position:relative;padding:24px 20px 42px;border-radius:3px;color:#12121a;cursor:grab;
+  font-size:14.5px;line-height:1.46;font-weight:500;touch-action:none;user-select:none;
+  box-shadow:5px 6px 16px rgba(0,0,0,.45);transition:box-shadow .18s;
+}
+.note:active{cursor:grabbing}
+.note.dragging{box-shadow:14px 18px 34px rgba(0,0,0,.6);z-index:20}
+.note::before{
+  content:'';position:absolute;top:-9px;left:50%;margin-left:-30px;width:60px;height:19px;
+  background:rgba(255,255,255,.3);border:1px solid rgba(255,255,255,.22);
+  transform:rotate(-2.5deg);
+}
+.note .kind{
+  font-family:var(--mono);font-size:9.5px;font-weight:600;text-transform:uppercase;letter-spacing:.13em;
+  opacity:.62;margin-bottom:9px;display:block;
+}
+.note .jump{
+  position:absolute;left:18px;bottom:14px;font-family:var(--mono);font-size:10.5px;font-weight:600;
+  background:rgba(0,0,0,.16);color:#12121a;border:none;border-radius:6px;padding:4px 9px;cursor:pointer;
+}
+.note .jump:hover{background:#12121a;color:#fff}
+.note.k-quote{background:#ff9ae0}
+.note.k-aha{background:#e8ff7a}
+.note.k-warning{background:#ffc98a}
+.note.k-stat{background:#8bf0ff}
+.note.k-tip{background:#d0c0ff}
+
+/* the download / summary */
+.prose{
+  background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:32px;
+  column-gap:38px;
+}
+@media(min-width:900px){.prose{columns:2}}
+.prose p{margin:0 0 17px;font-size:15px;line-height:1.72;color:#e6e4f5;break-inside:avoid}
+.prose p:first-child::first-letter{
+  font-size:2.9em;float:left;line-height:.82;padding:5px 10px 0 0;font-weight:700;color:var(--accent);
+}
+
+/* touch grass */
+.moves{display:grid;gap:11px}
+.move{
+  display:flex;align-items:flex-start;gap:14px;background:var(--panel);border:1px solid var(--line);
+  border-left:3px solid var(--accent);border-radius:12px;padding:16px 18px;cursor:pointer;
+  transition:border-color .16s,background .16s;
+}
+.move:hover{background:var(--panel-2)}
+.move.done{opacity:.45}
+.move.done .mtext{text-decoration:line-through}
+.box{
+  flex:none;width:21px;height:21px;border:2px solid var(--faint);border-radius:6px;margin-top:1px;
+  display:grid;place-items:center;font-size:12px;color:#0a0a0a;font-weight:700;transition:.16s;
+}
+.move.done .box,.receipt.picked .box{background:var(--accent);border-color:var(--accent)}
+.mtext{font-size:14.5px;line-height:1.5}
+
+/* receipts */
+.receipts-bar{
+  display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  background:var(--panel);border:2px solid var(--line);border-radius:var(--r);padding:15px 18px;margin-bottom:16px;
+  position:sticky;top:66px;z-index:40;backdrop-filter:blur(10px);
+}
+.count{font-family:var(--mono);font-size:12px;color:var(--accent);margin-right:auto}
+.dl{
+  font-size:13.5px;font-weight:700;background:var(--accent);color:#0a0a0a;
+  border:2px solid var(--accent);border-radius:11px;padding:10px 17px;cursor:pointer;
+  transition:transform .12s;
+}
+.dl:hover:not(:disabled){transform:translate(-1px,-1px)}
+.dl:disabled{opacity:.4;cursor:not-allowed}
+.receipts{display:grid;gap:11px}
+.receipt{
+  display:flex;align-items:flex-start;gap:15px;background:var(--panel);border:1px solid var(--line);
+  border-radius:14px;padding:18px 20px;cursor:pointer;transition:border-color .16s,background .16s;
+}
+.receipt:hover{background:var(--panel-2)}
+.receipt.picked{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 6%,var(--panel))}
+.receipt .body{flex:1;min-width:0}
+.receipt h4{margin:0 0 6px;font-size:16px;letter-spacing:-.02em;line-height:1.28}
+.receipt p{margin:0;font-size:13.5px;color:var(--haze);line-height:1.58}
+.stamp{
+  flex:none;font-family:var(--mono);font-size:11px;font-weight:600;color:var(--accent);
+  background:color-mix(in srgb,var(--accent) 13%,transparent);
+  border:1px solid color-mix(in srgb,var(--accent) 36%,transparent);
+  border-radius:8px;padding:5px 9px;cursor:pointer;
+}
+.stamp:hover{background:var(--accent);color:#0a0a0a}
+
+/* player dock */
+.dock{
+  position:fixed;right:18px;bottom:18px;width:312px;z-index:110;
+  background:var(--panel);border:2px solid var(--line);border-radius:16px;overflow:hidden;
+  box-shadow:0 20px 50px rgba(0,0,0,.7);
+}
+.dock-head{
+  display:flex;align-items:center;gap:9px;padding:9px 12px;background:var(--panel-2);
+  border-bottom:1px solid var(--line);
+}
+.dock-head .t{font-family:var(--mono);font-size:10.5px;color:var(--haze);flex:1;text-transform:uppercase;letter-spacing:.1em}
+.dock-head button{
+  background:none;border:none;color:var(--haze);cursor:pointer;font-size:16px;line-height:1;padding:2px 6px;
+}
+.dock-head button:hover{color:var(--ink)}
+.dock-body{aspect-ratio:16/9;background:#000}
+.dock-body iframe{width:100%;height:100%;border:0;display:block}
+.dock.min .dock-body{display:none}
+
+/* toast */
+.toast{
+  position:fixed;left:50%;bottom:26px;transform:translate(-50%,80px);z-index:200;
+  background:var(--lime);color:#0a0a0a;font-weight:700;font-size:13.5px;
+  padding:12px 22px;border-radius:999px;box-shadow:0 10px 30px rgba(0,0,0,.5);
+  opacity:0;transition:transform .28s cubic-bezier(.2,.9,.3,1.3),opacity .28s;pointer-events:none;
+}
+.toast.up{transform:translate(-50%,0);opacity:1}
+
+.foot{
+  border-top:1px solid var(--line);padding:30px 22px;text-align:center;
+  font-family:var(--mono);font-size:11.5px;color:var(--faint);
+}
+.foot a{color:var(--haze)}
+
+@media(max-width:760px){
+  .nav .tag{display:none}          /* make room for the Claude credit */
+  .how{grid-template-columns:1fr}
+  .crown{padding:28px 22px}
+  .crown h2{max-width:100%;margin-top:34px}
+  .sticker{top:16px;right:16px}
+  .dock{right:10px;left:10px;width:auto;bottom:10px}
+  .receipts-bar{position:static}
+  .map-card{height:440px}
+}
+@media(prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.001s!important;animation-iteration-count:1!important;transition-duration:.001s!important}
+  html{scroll-behavior:auto}
+}
+:focus-visible{outline:3px solid var(--cyan);outline-offset:2px;border-radius:6px}
+
+/* ── display layer ─────────────────────────────────────────
+   Last in the sheet on purpose: the tight tracking each heading sets for
+   Space Grotesk collides in a face this heavy, so these have to win. Body
+   copy and the mono chrome stay on Space Grotesk / JetBrains Mono. */
+.mark,.hero h1,.crown h2,.sec-head h3,.loading h2,.error h3,
+.receipt h4,.how h4,.cta,.dl{
+  font-family:var(--display);
+  letter-spacing:.005em;
+}
+.hero h1{line-height:1.02}
+.crown h2,.sec-head h3,.loading h2{line-height:1.12}
+</style>
+</head>
+<body>
+
+<div class="blobs" aria-hidden="true">
+  <div class="blob a"></div><div class="blob b"></div><div class="blob c"></div>
+</div>
+<div class="grain" aria-hidden="true"></div>
+
+<div class="wrap">
+
+<nav class="nav">
+  <div class="mark"><span class="y">yapmap</span><span class="blink"></span></div>
+  <span class="tag">turn the yap into a map</span>
+  <span class="spacer"></span>
+  <button class="nav-btn" id="btn-new" hidden>new video</button>
+  <span class="powered">powered by <b>Claude</b></span>
+</nav>
+
+<!-- ── stage: hero ─────────────────────────────────────── -->
+<section id="hero">
+  <div class="hero">
+    <span class="kicker">3 hours of video · 3 minutes of you</span>
+    <h1>make it <em>make sense</em>.</h1>
+    <p class="sub">Drop any YouTube link. Get a canvas back — <b>a mindmap you can actually move around</b>, sticky notes for the good bits, a real summary, and receipts with timestamps you can take with you.</p>
+
+    <form class="drop" id="drop" autocomplete="off">
+      <input id="url" type="text" placeholder="paste the link. we'll handle the yap." aria-label="YouTube link" />
+      <button class="cta" id="go" type="submit">make it make sense</button>
+    </form>
+    <div class="hint">anything with captions · lectures, podcasts, tutorials, reviews, video essays</div>
+
+    <div class="recents" id="recents" hidden>
+      <span class="lbl">back to</span>
+    </div>
+  </div>
+
+  <div class="how">
+    <div class="step"><div class="n">01</div><h4>paste</h4><p>Any YouTube link with captions. Shorts, lectures, 4-hour podcasts — all fair game.</p></div>
+    <div class="step"><div class="n">02</div><h4>let it cook</h4><p>Claude reads the whole transcript and works out what kind of video it is, then builds the right artifacts for it.</p></div>
+    <div class="step"><div class="n">03</div><h4>take it with you</h4><p>Tick the findings that matter and download them as markdown. Yours, offline, forever.</p></div>
+  </div>
+
+  <div class="marquee" aria-hidden="true">
+    <div class="track" id="track"></div>
+  </div>
+</section>
+
+<!-- ── stage: loading ──────────────────────────────────── -->
+<section id="loading" hidden>
+  <div class="loading">
+    <div class="orb"></div>
+    <h2 id="load-line">locking in…</h2>
+    <p>Reading the whole transcript so you don't have to.</p>
+    <div class="clock" id="clock">0s · usually 40–90s</div>
+  </div>
+</section>
+
+<!-- ── stage: error ────────────────────────────────────── -->
+<section id="error" hidden>
+  <div class="error">
+    <div class="card">
+      <h3 id="err-head">well. that flopped.</h3>
+      <p id="err-body"></p>
+      <button class="ghost" id="err-back">try another link</button>
+    </div>
+  </div>
+</section>
+
+<!-- ── stage: canvas ───────────────────────────────────── -->
+<section id="canvas" hidden>
+  <div class="canvas">
+
+    <header class="crown">
+      <div class="sticker" id="mode-sticker">study sesh</div>
+      <h2 id="headline"></h2>
+      <p class="tldr" id="tldr"></p>
+      <div class="meta" id="meta"></div>
+      <div class="crown-actions">
+        <button class="ghost" id="btn-regen">regenerate ↻</button>
+        <button class="ghost" id="btn-all">take the whole canvas ↓</button>
+        <button class="ghost" id="btn-watch">open on youtube ↗</button>
+      </div>
+    </header>
+
+    <section class="sec" id="sec-map">
+      <div class="sec-head">
+        <span class="sec-n">01</span>
+        <h3>the map</h3>
+        <span class="say">drag it, zoom it, collapse the parts you already know.</span>
+        <div class="tools">
+          <button class="mini" id="map-expand">expand all</button>
+          <button class="mini" id="map-fit">re-centre</button>
+          <button class="mini" id="map-full">fullscreen</button>
+        </div>
+      </div>
+      <div class="map-card" id="map-card">
+        <svg id="map-svg"></svg>
+        <div class="map-legend">scroll to zoom · drag to pan · click a node to fold it</div>
+      </div>
+    </section>
+
+    <section class="sec" id="sec-wall">
+      <div class="sec-head">
+        <span class="sec-n">02</span>
+        <h3 id="wall-title">the wall</h3>
+        <span class="say">the bits worth screenshotting. drag them wherever you like.</span>
+        <div class="tools"><button class="mini" id="wall-reset">tidy up</button></div>
+      </div>
+      <div class="wall" id="wall"></div>
+    </section>
+
+    <section class="sec" id="sec-sum">
+      <div class="sec-head">
+        <span class="sec-n">03</span>
+        <h3>the download</h3>
+        <span class="say">the whole thing, in the time it takes to finish your coffee.</span>
+        <div class="tools"><button class="mini" id="sum-copy">copy</button></div>
+      </div>
+      <div class="prose" id="summary"></div>
+    </section>
+
+    <section class="sec" id="sec-moves">
+      <div class="sec-head">
+        <span class="sec-n">04</span>
+        <h3>touch grass protocol</h3>
+        <span class="say">what to actually go do about it, offline, with your hands.</span>
+      </div>
+      <div class="moves" id="moves"></div>
+    </section>
+
+    <section class="sec" id="sec-receipts">
+      <div class="sec-head">
+        <span class="sec-n">05</span>
+        <h3 id="receipts-title">receipts</h3>
+        <span class="say">tick what matters. take it with you. timestamps jump the video.</span>
+      </div>
+      <div class="receipts-bar">
+        <span class="count" id="count">0 picked</span>
+        <button class="mini" id="pick-all">select all</button>
+        <button class="mini" id="pick-none">clear</button>
+        <button class="mini" id="copy-picked">copy</button>
+        <button class="dl" id="download" disabled>download .md ↓</button>
+      </div>
+      <div class="receipts" id="receipts"></div>
+    </section>
+
+  </div>
+</section>
+
+<footer class="foot">
+  built with the Claude Code CLI · runs on your own machine · <a href="https://github.com" id="repo-link">source</a>
+</footer>
+</div>
+
+<div class="dock min" id="dock" hidden>
+  <div class="dock-head">
+    <span class="t" id="dock-title">the tape</span>
+    <button id="dock-toggle" title="expand / collapse" aria-label="Toggle player">▢</button>
+    <button id="dock-close" title="close" aria-label="Close player">✕</button>
+  </div>
+  <div class="dock-body"><div id="player"></div></div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/markmap-view@0.18.12/dist/browser/index.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/markmap-lib@0.18.12/dist/browser/index.iife.js"></script>
+
+<script>
+(function () {
+  'use strict';
+
+  // ── copy deck ──────────────────────────────────────────
+  var MARQUEE = [
+    'turn the yap into a map','skip the sponsor segment','receipts, not vibes',
+    '3 hours → 3 minutes','for the tab you never finished','your attention span says thanks',
+    'the mindmap moves. so should you.'
+  ];
+  var LOADING = [
+    'locking in…','reading the whole thing so you don’t have to…','extracting the lore…',
+    'skipping the sponsor segment…','finding the actual point…','separating the yap from the facts…',
+    'chat, is this information…','vibe-checking the transcript…','still cooking. it’s a long one…',
+    'nearly. don’t close the tab…'
+  ];
+  var MODE_ACCENT = {
+    study:'var(--lime)', yap:'var(--pink)', howto:'var(--cyan)',
+    verdict:'var(--orange)', story:'var(--violet)'
+  };
+  var KIND_LABEL = {
+    quote:'they said it', aha:'oh — that’s why', warning:'heads up',
+    stat:'the number', tip:'steal this'
+  };
+
+  // ── element handles ────────────────────────────────────
+  var $ = function (id) { return document.getElementById(id); };
+  var stages = { hero:$('hero'), loading:$('loading'), error:$('error'), canvas:$('canvas') };
+  var urlInput = $('url'), goBtn = $('go');
+  var state = { data:null, picked:new Set(), mm:null, lastUrl:'', fitTimer:null, mapBuiltHidden:false, expandLevel:2 };
+
+  // ── stage switching ────────────────────────────────────
+  function show(name) {
+    Object.keys(stages).forEach(function (k) { stages[k].hidden = (k !== name); });
+    $('btn-new').hidden = (name !== 'canvas');
+    window.scrollTo({ top:0, behavior:'auto' });
+  }
+
+  function toast(msg) {
+    var t = $('toast');
+    t.textContent = msg;
+    t.classList.add('up');
+    clearTimeout(t._timer);
+    t._timer = setTimeout(function () { t.classList.remove('up'); }, 1900);
+  }
+
+  // marquee: duplicated so the -50% loop is seamless
+  (function fillMarquee() {
+    var html = MARQUEE.map(function (m) { return '<span>' + m + '</span>'; }).join('');
+    $('track').innerHTML = html + html;
+  })();
+
+  // ── recents (localStorage, best-effort) ────────────────
+  function readRecents() {
+    try { return JSON.parse(localStorage.getItem('yapmap.recents') || '[]'); }
+    catch (e) { return []; }
+  }
+  function pushRecent(item) {
+    try {
+      var list = readRecents().filter(function (r) { return r.id !== item.id; });
+      list.unshift(item);
+      localStorage.setItem('yapmap.recents', JSON.stringify(list.slice(0, 6)));
+    } catch (e) { /* private window, quota, whatever — not worth breaking over */ }
+  }
+  function renderRecents() {
+    var list = readRecents(), box = $('recents');
+    box.querySelectorAll('.chip').forEach(function (c) { c.remove(); });
+    if (!list.length) { box.hidden = true; return; }
+    box.hidden = false;
+    list.forEach(function (r) {
+      var b = document.createElement('button');
+      b.className = 'chip';
+      b.type = 'button';
+      b.textContent = r.title;
+      b.addEventListener('click', function () {
+        urlInput.value = 'https://www.youtube.com/watch?v=' + r.id;
+        run(urlInput.value, false);
+      });
+      box.appendChild(b);
+    });
+  }
+
+  // ── the request ────────────────────────────────────────
+  var loadTimer = null, phraseTimer = null;
+
+  function startLoadingTheatre() {
+    var i = 0, started = Date.now();
+    $('load-line').textContent = LOADING[0];
+    phraseTimer = setInterval(function () {
+      i = (i + 1) % LOADING.length;
+      $('load-line').textContent = LOADING[i];
+    }, 2600);
+    loadTimer = setInterval(function () {
+      var s = Math.round((Date.now() - started) / 1000);
+      $('clock').textContent = s + 's · usually 40–90s';
+    }, 1000);
+  }
+  function stopLoadingTheatre() {
+    clearInterval(phraseTimer); clearInterval(loadTimer);
+  }
+
+  async function run(url, force) {
+    state.lastUrl = url;
+    goBtn.disabled = true;
+    show('loading');
+    startLoadingTheatre();
+    try {
+      var res = await fetch('/api/canvas', {
+        method:'POST',
+        headers:{ 'Content-Type':'application/json' },
+        body: JSON.stringify({ url:url, force:!!force })
+      });
+      var data = await res.json();
+      if (!res.ok) throw new Error(data.error || ('Request failed (' + res.status + ')'));
+      state.data = data;
+      pushRecent({ id:data.video_id, title:data.headline || data.title });
+      // Reveal before rendering: markmap measures its text nodes to lay the
+      // tree out, and inside a display:none ancestor every measurement is 0,
+      // which collapses the whole map into the top-left corner.
+      show('canvas');
+      render(data);
+    } catch (err) {
+      $('err-body').textContent = (err && err.message) ? err.message : String(err);
+      show('error');
+    } finally {
+      stopLoadingTheatre();
+      goBtn.disabled = false;
+    }
+  }
+
+  // ── render: the canvas ─────────────────────────────────
+  function fmt(sec) {
+    if (sec === null || sec === undefined) return '';
+    sec = Math.max(0, Math.round(sec));
+    var h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
+    var mm = (h && m < 10 ? '0' : '') + m;
+    return (h ? h + ':' : '') + mm + ':' + (s < 10 ? '0' : '') + s;
+  }
+
+  function render(d) {
+    document.documentElement.style.setProperty('--accent', MODE_ACCENT[d.mode] || 'var(--lime)');
+
+    $('mode-sticker').textContent = (d.mode_label || 'deep dive').toLowerCase();
+    $('headline').textContent = d.headline || d.title;
+    $('tldr').textContent = d.tldr || '';
+    $('tldr').hidden = !d.tldr;
+
+    var pills = [];
+    if (d.channel) pills.push(d.channel);
+    if (d.duration) pills.push(fmt(d.duration) + ' of footage');
+    if (d.receipts && d.receipts.length) pills.push(d.receipts.length + ' findings');
+    if (d.language) pills.push(d.language);
+    if (d.truncated) pills.push('⚠ long video — transcript trimmed');
+    if (d.cached) pills.push('↺ from cache');
+    $('meta').innerHTML = pills.map(function (p, i) {
+      return '<span class="pill' + (i === 0 ? ' live' : '') + '"></span>';
+    }).join('');
+    Array.prototype.forEach.call($('meta').children, function (el, i) { el.textContent = pills[i]; });
+
+    renderMap(d.mindmap, 2);
+    renderWall(d);
+    renderSummary(d.summary);
+    renderMoves(d.moves);
+    renderReceipts(d);
+    setupPlayer(d.video_id);
+    $('btn-watch').onclick = function () {
+      window.open('https://www.youtube.com/watch?v=' + d.video_id, '_blank', 'noopener');
+    };
+  }
+
+  // ── the map ────────────────────────────────────────────
+  var BRANCH = ['#e2ff57','#ff74dc','#5eeaff','#bda2ff','#ffb85c'];
+
+  function renderMap(markdown, expandLevel) {
+    var mk = window.markmap;
+    var svg = $('map-svg');
+    if (!mk || !mk.Transformer) {
+      svg.parentNode.innerHTML = '<div style="padding:34px;color:var(--haze);font-size:14px">' +
+        'The mindmap library didn’t load — check your connection and refresh. Everything else on this page still works.</div>';
+      return;
+    }
+    var root = new mk.Transformer().transform(markdown || '# —').root;
+    var opts = {
+      color: function (node) {
+        var depth = (node && node.state && node.state.depth) || 0;
+        return BRANCH[depth % BRANCH.length];
+      },
+      duration: 250,
+      maxWidth: 320,
+      paddingX: 18,
+      spacingVertical: 9,
+      initialExpandLevel: (expandLevel === undefined ? 2 : expandLevel),
+      fitRatio: 0.92
+    };
+    // Every video gets a brand-new <svg>. Reusing the node leaves the previous
+    // instance's zoom handlers and layout state attached -- its render promise
+    // never settles, so a second setData() draws nothing at all.
+    if (state.mm) {
+      try { state.mm.destroy(); } catch (e) { /* nothing to tear down */ }
+      state.mm = null;
+    }
+    var fresh = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    fresh.id = 'map-svg';
+    svg.replaceWith(fresh);
+
+    state.mm = mk.Markmap.create(fresh, opts);
+    state.mm.setData(root);
+    // A map laid out in a hidden tab measures every label as zero-width and
+    // collapses to a point -- remember that so it can be rebuilt on return.
+    state.mapBuiltHidden = document.hidden;
+    state.expandLevel = expandLevel;
+    refit();
+  }
+
+  // create() lays the tree out but never centres it, so without fit() the map
+  // sits off-screen at negative coordinates. Knowing *when* to fit is the hard
+  // part: setData()'s promise only settles once d3's transitions finish, which
+  // never happens in a background tab, and fitting before the tree has been
+  // measured writes scale(0) and leaves the map invisible.
+  // So: retry fit() until the transform it produces has a real scale.
+  function refit() {
+    clearInterval(state.fitTimer);
+    var tries = 0;
+    state.fitTimer = setInterval(function () {
+      tries += 1;
+      var svg = document.getElementById('map-svg');
+      if (!state.mm || !svg || tries > 40) { clearInterval(state.fitTimer); return; }
+
+      // A hidden tab or a not-yet-laid-out card measures zero wide, and fitting
+      // against that divides by zero: the map gets translate(NaN,NaN) burnt in
+      // and never recovers. Wait for a real width rather than fitting blind.
+      if (svg.getBoundingClientRect().width < 50) return;
+
+      try { state.mm.fit(); } catch (e) {}
+      var g = svg.querySelector('g');
+      var matched = g && (g.getAttribute('transform') || '').match(/scale\(([-\d.e+]+)\)/i);
+      var scale = matched ? parseFloat(matched[1]) : 0;
+      if (isFinite(scale) && scale > 0.01 && tries >= 3) clearInterval(state.fitTimer);
+    }, 120);
+  }
+
+  var resizeTimer = null;
+  window.addEventListener('resize', function () {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(refit, 200);
+  });
+
+  // A hidden tab gets no layout, so a map built in the background comes back
+  // uncentred. Re-fit when the page is looked at again.
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden || !state.mm) return;
+    // Re-fitting only moves the tree; a tree laid out while hidden is itself
+    // wrong, so that one has to be built again from the markdown.
+    if (state.mapBuiltHidden && state.data) renderMap(state.data.mindmap, state.expandLevel);
+    else refit();
+  });
+
+  $('map-fit').addEventListener('click', function () { refit(); });
+  $('map-expand').addEventListener('click', function (e) {
+    if (!state.data) return;
+    var open = e.target.classList.toggle('on');
+    e.target.textContent = open ? 'collapse' : 'expand all';
+    // Rebuild at a different expand level. Setting payload.fold on the live
+    // tree and re-rendering doesn't re-fold nodes that are already open, so
+    // "collapse" silently did nothing; rebuilding always lands correctly.
+    renderMap(state.data.mindmap, open ? -1 : 2);
+  });
+  $('map-full').addEventListener('click', function (e) {
+    var full = $('map-card').classList.toggle('full');
+    e.target.textContent = full ? 'exit' : 'fullscreen';
+    e.target.classList.toggle('on', full);
+    refit();
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && $('map-card').classList.contains('full')) $('map-full').click();
+  });
+
+  // ── the wall ───────────────────────────────────────────
+  function renderWall(d) {
+    var wall = $('wall');
+    $('wall-title').textContent = (d.stickies_label || 'the wall').toLowerCase();
+    wall.innerHTML = '';
+    if (!d.stickies || !d.stickies.length) { $('sec-wall').hidden = true; return; }
+    $('sec-wall').hidden = false;
+
+    d.stickies.forEach(function (s, i) {
+      var note = document.createElement('div');
+      note.className = 'note k-' + s.kind;
+      var tilt = ((i * 37) % 7) - 3;                 // deterministic -3°..+3°
+      note.dataset.tilt = tilt; note.dataset.dx = 0; note.dataset.dy = 0;
+      note.style.transform = 'rotate(' + tilt + 'deg)';
+
+      var kind = document.createElement('span');
+      kind.className = 'kind';
+      kind.textContent = KIND_LABEL[s.kind] || s.kind;
+      note.appendChild(kind);
+
+      note.appendChild(document.createTextNode(s.text));
+
+      if (s.t !== null && s.t !== undefined) {
+        var jump = document.createElement('button');
+        jump.className = 'jump';
+        jump.type = 'button';
+        jump.textContent = '▶ ' + fmt(s.t);
+        jump.addEventListener('click', function (ev) { ev.stopPropagation(); jumpTo(s.t); });
+        note.appendChild(jump);
+      }
+      makeDraggable(note);
+      wall.appendChild(note);
+    });
+  }
+
+  // Notes stay in grid flow and move by transform only — dragging can never
+  // break the layout, and "tidy up" is just resetting two numbers.
+  function makeDraggable(el) {
+    var startX = 0, startY = 0, baseX = 0, baseY = 0, active = false;
+    el.addEventListener('pointerdown', function (e) {
+      if (e.target.closest('.jump')) return;
+      active = true;
+      startX = e.clientX; startY = e.clientY;
+      baseX = parseFloat(el.dataset.dx) || 0;
+      baseY = parseFloat(el.dataset.dy) || 0;
+      el.setPointerCapture(e.pointerId);
+      el.classList.add('dragging');
+    });
+    el.addEventListener('pointermove', function (e) {
+      if (!active) return;
+      var dx = baseX + (e.clientX - startX), dy = baseY + (e.clientY - startY);
+      el.dataset.dx = dx; el.dataset.dy = dy;
+      el.style.transform = 'translate(' + dx + 'px,' + dy + 'px) rotate(' + el.dataset.tilt + 'deg)';
+    });
+    function end(e) {
+      if (!active) return;
+      active = false;
+      el.classList.remove('dragging');
+      try { el.releasePointerCapture(e.pointerId); } catch (err) { /* already released */ }
+    }
+    el.addEventListener('pointerup', end);
+    el.addEventListener('pointercancel', end);
+  }
+
+  $('wall-reset').addEventListener('click', function () {
+    document.querySelectorAll('.note').forEach(function (n) {
+      n.dataset.dx = 0; n.dataset.dy = 0;
+      n.style.transform = 'rotate(' + n.dataset.tilt + 'deg)';
+    });
+    toast('tidied ✓');
+  });
+
+  // ── summary ────────────────────────────────────────────
+  function renderSummary(paras) {
+    var box = $('summary');
+    box.innerHTML = '';
+    if (!paras || !paras.length) { $('sec-sum').hidden = true; return; }
+    $('sec-sum').hidden = false;
+    paras.forEach(function (p) {
+      var el = document.createElement('p');
+      el.textContent = p;
+      box.appendChild(el);
+    });
+  }
+  $('sum-copy').addEventListener('click', function () {
+    copy((state.data.summary || []).join('\n\n'), 'summary copied ✓');
+  });
+
+  // ── touch grass ────────────────────────────────────────
+  function renderMoves(moves) {
+    var box = $('moves');
+    box.innerHTML = '';
+    if (!moves || !moves.length) { $('sec-moves').hidden = true; return; }
+    $('sec-moves').hidden = false;
+    moves.forEach(function (m) {
+      var row = document.createElement('div');
+      row.className = 'move';
+      row.innerHTML = '<div class="box">✓</div>';
+      var span = document.createElement('span');
+      span.className = 'mtext';
+      span.textContent = m;
+      row.appendChild(span);
+      row.addEventListener('click', function () { row.classList.toggle('done'); });
+      box.appendChild(row);
+    });
+  }
+
+  // ── receipts ───────────────────────────────────────────
+  function renderReceipts(d) {
+    var box = $('receipts');
+    $('receipts-title').textContent = (d.receipts_label || 'receipts').toLowerCase();
+    box.innerHTML = '';
+    state.picked = new Set();
+    if (!d.receipts || !d.receipts.length) { $('sec-receipts').hidden = true; return; }
+    $('sec-receipts').hidden = false;
+
+    d.receipts.forEach(function (r, i) {
+      var row = document.createElement('div');
+      row.className = 'receipt';
+      row.dataset.i = i;
+
+      var box2 = document.createElement('div');
+      box2.className = 'box'; box2.textContent = '✓';
+      row.appendChild(box2);
+
+      var body = document.createElement('div');
+      body.className = 'body';
+      var h = document.createElement('h4'); h.textContent = r.title; body.appendChild(h);
+      if (r.detail) { var p = document.createElement('p'); p.textContent = r.detail; body.appendChild(p); }
+      row.appendChild(body);
+
+      if (r.t !== null && r.t !== undefined) {
+        var stamp = document.createElement('button');
+        stamp.className = 'stamp'; stamp.type = 'button';
+        stamp.textContent = '▶ ' + fmt(r.t);
+        stamp.addEventListener('click', function (ev) { ev.stopPropagation(); jumpTo(r.t); });
+        row.appendChild(stamp);
+      }
+
+      row.addEventListener('click', function () { togglePick(i, row); });
+      box.appendChild(row);
+    });
+    updateCount();
+  }
+
+  function togglePick(i, row) {
+    if (state.picked.has(i)) state.picked.delete(i); else state.picked.add(i);
+    row.classList.toggle('picked', state.picked.has(i));
+    updateCount();
+  }
+  function updateCount() {
+    var n = state.picked.size;
+    var total = (state.data && state.data.receipts) ? state.data.receipts.length : 0;
+    $('count').textContent = n ? (n + ' of ' + total + ' picked') : 'nothing picked yet — tap the ones that matter';
+    $('download').disabled = n === 0;
+    $('copy-picked').disabled = n === 0;
+  }
+  $('pick-all').addEventListener('click', function () {
+    document.querySelectorAll('.receipt').forEach(function (row) {
+      state.picked.add(+row.dataset.i); row.classList.add('picked');
+    });
+    updateCount();
+  });
+  $('pick-none').addEventListener('click', function () {
+    state.picked.clear();
+    document.querySelectorAll('.receipt').forEach(function (row) { row.classList.remove('picked'); });
+    updateCount();
+  });
+
+  // ── export ─────────────────────────────────────────────
+  function slug(s) {
+    return (s || 'yapmap').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60) || 'yapmap';
+  }
+  function sourceLine(d) {
+    return 'Source: https://www.youtube.com/watch?v=' + d.video_id + (d.channel ? '  ·  ' + d.channel : '');
+  }
+  function stampLink(d, t) {
+    return (t === null || t === undefined) ? '' :
+      ' — [' + fmt(t) + '](https://www.youtube.com/watch?v=' + d.video_id + '&t=' + t + 's)';
+  }
+
+  function pickedMarkdown() {
+    var d = state.data;
+    var chosen = d.receipts.filter(function (_, i) { return state.picked.has(i); });
+    var out = ['# ' + (d.headline || d.title), '', '*' + (d.receipts_label || 'Key findings') + ' — saved from yapmap*', '', sourceLine(d), ''];
+    chosen.forEach(function (r) {
+      out.push('## ' + r.title + stampLink(d, r.t));
+      if (r.detail) out.push('', r.detail);
+      out.push('');
+    });
+    return out.join('\n');
+  }
+
+  function fullMarkdown() {
+    var d = state.data, out = [];
+    out.push('# ' + (d.headline || d.title), '');
+    if (d.tldr) out.push('> ' + d.tldr, '');
+    out.push(sourceLine(d), '');
+    if (d.summary && d.summary.length) out.push('## Summary', '', d.summary.join('\n\n'), '');
+    if (d.mindmap) out.push('## Mindmap', '', d.mindmap, '');
+    if (d.stickies && d.stickies.length) {
+      out.push('## ' + (d.stickies_label || 'Highlights'), '');
+      d.stickies.forEach(function (s) { out.push('- **' + (KIND_LABEL[s.kind] || s.kind) + '** — ' + s.text + stampLink(d, s.t)); });
+      out.push('');
+    }
+    if (d.moves && d.moves.length) {
+      out.push('## Next moves', '');
+      d.moves.forEach(function (m) { out.push('- [ ] ' + m); });
+      out.push('');
+    }
+    if (d.receipts && d.receipts.length) {
+      out.push('## ' + (d.receipts_label || 'Key findings'), '');
+      d.receipts.forEach(function (r) {
+        out.push('### ' + r.title + stampLink(d, r.t));
+        if (r.detail) out.push('', r.detail);
+        out.push('');
+      });
+    }
+    out.push('---', '', 'Generated by yapmap · powered by Claude');
+    return out.join('\n');
+  }
+
+  function download(text, name) {
+    var blob = new Blob([text], { type:'text/markdown;charset=utf-8' });
+    var href = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = href; a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function () { URL.revokeObjectURL(href); }, 1000);
+  }
+  function copy(text, msg) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () { toast(msg); },
+        function () { toast('clipboard said no — try downloading instead'); });
+    } else {
+      toast('clipboard needs https or localhost — download instead');
+    }
+  }
+
+  $('download').addEventListener('click', function () {
+    download(pickedMarkdown(), slug(state.data.headline) + '-findings.md');
+    toast('saved. it’s yours now ✓');
+  });
+  $('copy-picked').addEventListener('click', function () { copy(pickedMarkdown(), 'copied fr ✓'); });
+  $('btn-all').addEventListener('click', function () {
+    download(fullMarkdown(), slug(state.data.headline) + '-canvas.md');
+    toast('whole canvas saved ✓');
+  });
+
+  // ── the player dock ────────────────────────────────────
+  var yt = { player:null, ready:false, pending:null, failed:false, videoId:null, loading:false };
+
+  function setupPlayer(videoId) {
+    yt.videoId = videoId;
+    yt.ready = false; yt.player = null;
+    $('dock').hidden = true;
+    $('dock').classList.add('min');
+    $('player').innerHTML = '';
+  }
+
+  function loadYouTubeApi() {
+    if (yt.loading || window.YT) return;
+    yt.loading = true;
+    var s = document.createElement('script');
+    s.src = 'https://www.youtube.com/iframe_api';
+    s.onerror = function () { yt.failed = true; };
+    document.head.appendChild(s);
+    // If the API never arrives (blocked, offline), fall back to plain links.
+    setTimeout(function () { if (!window.YT || !window.YT.Player) yt.failed = true; }, 6000);
+  }
+
+  window.onYouTubeIframeAPIReady = function () { buildPlayer(); };
+
+  function buildPlayer() {
+    if (yt.player || !yt.videoId || !window.YT || !window.YT.Player) return;
+    yt.player = new window.YT.Player('player', {
+      videoId: yt.videoId,
+      playerVars: { rel:0, modestbranding:1, playsinline:1 },
+      events: {
+        onReady: function () {
+          yt.ready = true;
+          if (yt.pending !== null) { doSeek(yt.pending); yt.pending = null; }
+        },
+        onError: function () { yt.failed = true; }
+      }
+    });
+  }
+
+  function doSeek(t) {
+    try {
+      yt.player.seekTo(t, true);
+      yt.player.playVideo();
+    } catch (e) { openAt(t); }
+  }
+
+  function openAt(t) {
+    window.open('https://www.youtube.com/watch?v=' + yt.videoId + '&t=' + Math.round(t) + 's', '_blank', 'noopener');
+  }
+
+  function jumpTo(t) {
+    if (yt.failed) { openAt(t); return; }
+    $('dock').hidden = false;
+    $('dock').classList.remove('min');
+    if (yt.ready && yt.player) { doSeek(t); return; }
+    yt.pending = t;
+    if (window.YT && window.YT.Player) buildPlayer(); else loadYouTubeApi();
+    // Last resort: if it still isn't up shortly, just open the tab.
+    setTimeout(function () {
+      if (!yt.ready && yt.pending === t) { yt.pending = null; openAt(t); }
+    }, 7000);
+  }
+
+  $('dock-toggle').addEventListener('click', function () { $('dock').classList.toggle('min'); });
+  $('dock-close').addEventListener('click', function () {
+    $('dock').hidden = true;
+    if (yt.player && yt.player.pauseVideo) { try { yt.player.pauseVideo(); } catch (e) {} }
+  });
+
+  // ── wiring ─────────────────────────────────────────────
+  $('drop').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var url = urlInput.value.trim();
+    if (!url) { toast('paste a link first 🫡'); return; }
+    run(url, false);
+  });
+  $('btn-new').addEventListener('click', function () {
+    show('hero'); renderRecents(); urlInput.value = ''; urlInput.focus();
+  });
+  $('err-back').addEventListener('click', function () { show('hero'); urlInput.focus(); });
+  $('btn-regen').addEventListener('click', function () {
+    if (state.lastUrl) run(state.lastUrl, true);
+  });
+
+  renderRecents();
+  urlInput.focus();
+})();
+</script>
+</body>
+</html>
