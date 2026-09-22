@@ -4,7 +4,7 @@
 
 Runs on your own machine. Uses your **Claude subscription** through the Claude Code CLI, so there's **no API key and no per-token billing**.
 
-![A yapmap canvas for a 51-minute interview: a rewritten headline, a one-line TL;DR, channel and runtime pills, and the start of the mindmap](docs/screenshots/canvas.webp)
+![The yapmap landing page: a large gradient "make it make sense." headline, a one-line pitch, and a link box beside the "make it make sense" button](docs/screenshots/landing.webp)
 
 ---
 
@@ -24,9 +24,9 @@ Every timestamp is clickable: it seeks an embedded player, and it survives into 
 
 ### See it
 
-**Paste a link** — any YouTube video with captions. That's the whole input.
+**The canvas** — the video comes back retitled, with a one-line TL;DR, its channel and runtime, and a mode picked for it (here, *Career Masterclass*).
 
-![The yapmap landing page: a large gradient "make it make sense." headline, a one-line pitch, and a link box beside the "make it make sense" button](docs/screenshots/landing.webp)
+![A yapmap canvas for a 51-minute interview: a rewritten headline, a one-line TL;DR, channel and runtime pills, and the start of the mindmap](docs/screenshots/canvas.webp)
 
 **The map** — the whole video as a tree. Fold what you already know, drag, zoom, go fullscreen.
 
