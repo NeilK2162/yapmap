@@ -4,6 +4,8 @@
 
 Runs on your own machine. Uses your **Claude subscription** through the Claude Code CLI, so there's **no API key and no per-token billing**.
 
+![A yapmap canvas for a 51-minute interview: a rewritten headline, a one-line TL;DR, channel and runtime pills, and the start of the mindmap](docs/screenshots/canvas.webp)
+
 ---
 
 ## What you get
@@ -20,6 +22,24 @@ One link in, five artifacts out:
 
 Every timestamp is clickable: it seeks an embedded player, and it survives into the exported Markdown as a deep link back to that exact second.
 
+### See it
+
+**The map** — the whole video as a tree. Fold what you already know, drag, zoom, go fullscreen.
+
+![Mindmap of the interview: a root node branching into sections such as the rare skillset, building and proving the system, selling the engagement, and a 30-day plan broken into weekly steps](docs/screenshots/map.webp)
+
+**The wall** — the lines worth screenshotting, each tagged by kind and linked to its timestamp. Every note is draggable.
+
+![Nine colour-coded sticky notes labelled "they said it", "the number", "heads up", "steal this" and "oh, that's why", each with a play-button timestamp](docs/screenshots/wall.webp)
+
+**The download** — a real summary, in paragraphs.
+
+![A two-column prose summary of the interview with a drop cap](docs/screenshots/summary.webp)
+
+**Touch grass protocol and receipts** — what to go and do, then the findings you tick and export as Markdown.
+
+![A checklist of five real-world next steps, followed by the findings section with select-all, copy and download controls](docs/screenshots/next-moves-and-findings.webp)
+
 ### It adapts to the video
 
 There's no single "summarise it" template. Claude first works out what kind of video it is, then builds artifacts to match — and names the sections itself:
@@ -32,7 +52,7 @@ There's no single "summarise it" template. Claude first works out what kind of v
 | `verdict` | reviews, comparisons, buying guides | the pros, cons, and the call |
 | `story` | documentaries, video essays, news | the key events in sequence |
 
-A freeCodeCamp lecture comes back as **"Core Concepts"**; a podcast comes back as **"Hot Takes"**.
+The labels change with every video. The career interview in the screenshots came back as a **Career Masterclass** with a **Wall of Wisdom**; a freeCodeCamp system-design lecture came back as a **System Design Bootcamp** with **Whiteboard Scraps**.
 
 ---
 
