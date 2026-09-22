@@ -3,7 +3,8 @@ Build demo/ -- the data behind the GitHub Pages gallery.
 
 The gallery is the same app with no server: it reads these files instead of
 calling Flask. Only what's allowlisted below is exported, so nothing else in
-your .cache/ -- your own canvases -- can end up public by accident.
+your .cache/ -- your own canvases, questions and transcripts -- can end up
+public by accident.
 
 Every demo video is Creative Commons Attribution (CC BY) licensed on YouTube;
 the gallery credits each creator and links to the original. Run this after
@@ -28,6 +29,8 @@ CANVASES = [
     ("Ey8Iu-S5o90", "story: a documentary, so a timeline"),
     ("DzJt1moTk4Y", "yap: a podcast interview, so claims to check"),
 ]
+# Extra languages worth showing off, as (video id, language).
+TRANSLATIONS = [("O1kyPh1HyHI", "hinglish")]
 BEEFS = [("y8bTzpWbYGY", "mEenkoGjtw8")]
 PURGE = ["WxyjDNVv5IY", "NieQHjCHnxg", "Hs6GkiSq21g", "y8bTzpWbYGY",
          "1tO1_M3FySU", "SnLScjMaPhA", "brNGT1OGP6M", "JAtsoLAE2oM"]
@@ -43,9 +46,10 @@ def utc(value) -> str:
 
 
 def public(payload: dict) -> dict:
-    clean = {k: v for k, v in payload.items() if k not in {"cached", "outdated"}}
-    if "created_at" in clean:
-        clean["created_at"] = utc(clean["created_at"])
+    clean = {k: v for k, v in payload.items() if k not in {"cached", "outdated", "langs"}}
+    for key in ("created_at", "at"):
+        if key in clean:
+            clean[key] = utc(clean[key])
     return clean
 
 
@@ -54,16 +58,26 @@ def write(path: Path, data) -> None:
     path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
 
 
+def current_canvas(video_id: str, lang: str = A.DEFAULT_LANG) -> dict:
+    canvas = A.read_json(A.canvas_cache_path(video_id, lang))
+    if not isinstance(canvas, dict):
+        raise SystemExit(f"{video_id} ({lang}) has no current-schema canvas -- generate it first.")
+    return canvas
+
+
 def main() -> None:
     if OUT.exists():
         shutil.rmtree(OUT)
 
     canvases = []
+    langs_by_video = {vid: ["en"] for vid, _ in CANVASES}
+    for video_id, lang in TRANSLATIONS:
+        translated = {**public(current_canvas(video_id, lang)), "license": LICENSE}
+        write(OUT / "canvases" / f"{video_id}.{lang}.json", translated)
+        langs_by_video[video_id].append(lang)
+
     for video_id, why in CANVASES:
-        canvas = A.read_json(A.canvas_cache_path(video_id))
-        if not isinstance(canvas, dict):
-            raise SystemExit(f"{video_id} ({why}) has no current-schema canvas -- generate it first.")
-        canvas = {**public(canvas), "license": LICENSE}
+        canvas = {**public(current_canvas(video_id)), "license": LICENSE}
         write(OUT / "canvases" / f"{video_id}.json", canvas)
         canvases.append((video_id, canvas))
 
@@ -72,8 +86,23 @@ def main() -> None:
             if isinstance(voiced, dict):
                 write(OUT / "voices" / f"{video_id}.{voice}.json", public(voiced))
 
+        # The transcript, as the same timestamped blocks the app serves.
+        snippets = A.read_json(A.transcript_cache_path(video_id), {}).get("snippets")
+        if not snippets:
+            raise SystemExit(f"{video_id} has no cached transcript -- open its canvas in the app once first.")
+        blocks = A.transcript_blocks([(float(s), str(t)) for s, t in snippets], size=180)
+        write(OUT / "transcripts" / f"{video_id}.json", {
+            "video_id": video_id,
+            "blocks": [{"t": round(t, 1), "text": text} for t, text in blocks],
+        })
+
+        answers = [public(item) for item in A.load_ask_history(video_id)]
+        if answers:
+            write(OUT / "ask" / f"{video_id}.json", answers)
+
     index = [
-        {**A.library_item(vid, canvas, Path(".")), "outdated": False, "created_at": canvas["created_at"]}
+        {**A.library_item(vid, canvas, Path(".")), "outdated": False, "created_at": canvas["created_at"],
+         "langs": langs_by_video[vid]}
         for vid, canvas in canvases
     ]
     write(OUT / "index.json", {"items": index})

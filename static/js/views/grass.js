@@ -1,5 +1,6 @@
 import { h, timeAgo, toast, emptyState } from '../util.js';
 import { listCommitments, updateCommitment } from '../store.js';
+import { reminderMenu } from './canvas.js';
 
 export async function render(root, _params, _query, ctx) {
   const page = h('div', { class: 'page narrow' });
@@ -7,7 +8,7 @@ export async function render(root, _params, _query, ctx) {
   page.append(h('div', { class: 'page-head' },
     h('span', { class: 'kicker' }, 'touch grass protocol'),
     h('h1', null, 'did you ', h('em', null, 'actually'), ' do it?'),
-    h('p', { class: 'sub' }, 'Self-improvement videos get watched like TV and nothing changes. Pin one move from any canvas, and yapmap asks you about it later. The streak counts things you did — not things you watched.'),
+    h('p', { class: 'sub' }, 'Self-improvement videos get watched like TV and nothing changes. Pin one move from any canvas, put it in your calendar, and yapmap asks you about it later. The streak counts things you did — not things you watched.'),
   ));
   const body = h('div');
   page.append(body);
@@ -21,15 +22,15 @@ export async function render(root, _params, _query, ctx) {
     const history = items.filter((c) => c.status !== 'open').sort((a, b) => (b.resolved_at || '').localeCompare(a.resolved_at || ''));
 
     const statRow = h('div', { class: 'streak-row' },
-      h('div', { class: 'stat big' }, h('b', null, `🔥 ${streak.current}`), h('span', null, streak.current === 1 ? 'kept in a row' : 'kept in a row')),
-      h('div', { class: 'stat' }, h('b', null, streak.best), h('span', null, 'best streak')),
-      h('div', { class: 'stat' }, h('b', null, streak.kept), h('span', null, 'kept')),
-      h('div', { class: 'stat' }, h('b', null, streak.dropped), h('span', null, 'dropped')),
+      h('div', { class: 'stat big' }, h('b', null, `🔥 ${streak.current}`), h('span', null, 'kept in a row')),
+      h('div', { class: 'stat' }, h('b', null, String(streak.best)), h('span', null, 'best streak')),
+      h('div', { class: 'stat' }, h('b', null, String(streak.kept)), h('span', null, 'kept')),
+      h('div', { class: 'stat' }, h('b', null, String(streak.dropped)), h('span', null, 'dropped')),
     );
 
     if (!items.length) {
       body.replaceChildren(statRow, emptyState('🌱', 'no commitments yet',
-        'Open any canvas, scroll to “touch grass protocol”, and hit “i’ll do this” on one move. Start small — one is plenty.',
+        'Open any canvas, scroll to “touch grass”, and hit “i’ll do this” on one move. Start small — one is plenty.',
         h('a', { class: 'ghost hot', href: '#/library' }, 'pick a canvas')));
       return;
     }
@@ -53,21 +54,22 @@ export async function render(root, _params, _query, ctx) {
         ),
       ),
       c.status === 'open'
-        ? h('div', { class: 'cc-actions' },
-          h('button', { class: 'mini on', onclick: () => act(c, { status: 'done' }, 'kept it. that’s growth fr 🌱') }, 'did it ✓'),
-          h('button', { class: 'mini', onclick: () => act(c, { snooze_days: 2 }, 'we’ll ask again in two days') }, 'not yet'),
-          h('button', { class: 'mini', onclick: () => act(c, { status: 'dropped' }, 'dropped. no shame, just data.') }, 'drop it'),
+        ? h('div', { class: 'row' },
+          h('button', { class: 'mini on', type: 'button', onclick: () => act(c, { status: 'done' }, 'kept it. that’s growth fr 🌱') }, 'did it ✓'),
+          h('button', { class: 'mini', type: 'button', onclick: () => act(c, { snooze_days: 2 }, 'we’ll ask again in two days') }, 'not yet'),
+          h('button', { class: 'mini', type: 'button', onclick: () => act(c, { status: 'dropped' }, 'dropped. no shame, just data.') }, 'drop it'),
+          reminderMenu(c),
         )
-        : h('div', { class: 'cc-actions' },
-          h('button', { class: 'mini', onclick: () => act(c, { status: 'open' }, 'reopened') }, 'reopen')),
+        : h('div', { class: 'row' },
+          h('button', { class: 'mini', type: 'button', onclick: () => act(c, { status: 'open' }, 'reopened') }, 'reopen')),
     );
 
     body.replaceChildren(
       statRow,
-      h('h3', { class: 'sub-title' }, open.length ? `on your plate · ${open.length}` : 'on your plate'),
+      h('h2', { class: 'sub-title' }, open.length ? `on your plate · ${open.length}` : 'on your plate'),
       open.length ? h('div', { class: 'commits' }, open.map(card))
-        : h('p', { class: 'hint', style: { margin: '0 0 34px', textAlign: 'left' } }, 'nothing open — go pin a new move from a canvas.'),
-      history.length ? h('h3', { class: 'sub-title' }, 'the record') : null,
+        : h('p', { class: 'hint left' }, 'nothing open — go pin a new move from a canvas.'),
+      history.length ? h('h2', { class: 'sub-title' }, 'the record') : null,
       history.length ? h('div', { class: 'commits' }, history.map(card)) : null,
     );
   };

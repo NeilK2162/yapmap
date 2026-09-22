@@ -1,127 +1,70 @@
 // One tool per kind of video. Every item links back to the exact second it
 // came from -- that's the rule that makes these more than a summary.
 
-import { h, fmt, copy, download, slug, searchUrl, toast, lsGet, lsSet, ytUrl } from '../util.js';
+import { h, fmt, copy, download, slug, searchUrl, toast, ytUrl } from '../util.js';
+import { deck as loadDeck } from '../api.js';
 import { jumpTo, onTime } from '../player.js';
 import { startTimer } from '../timers.js';
+import { studyDeck } from '../deck.js';
 
 export const ARTIFACT_NAMES = {
   flashcards: 'cram deck', cookalong: 'cook-along', verdict: 'the verdict', claims: 'claims to check', timeline: 'the timeline',
 };
-const MODE_ARTIFACT = { study: 'cram deck', howto: 'cook-along', verdict: 'buy/skip card', yap: 'claims to check', story: 'timeline' };
-export const artifactNameForMode = (mode) => MODE_ARTIFACT[mode] || 'mode tool';
+const MODE_ARTIFACT = { study: 'cram deck', howto: 'cook-along', verdict: 'the verdict', yap: 'claims to check', story: 'the timeline' };
+export const artifactNameForMode = (mode) => MODE_ARTIFACT[mode] || 'the tool';
 
-export function buildArtifact(canvas, ctx) {
+export function buildArtifact(canvas, ctx, ui) {
   const art = canvas.artifact;
   if (!art || !art.type) return null;
   const build = { flashcards, cookalong, verdict, claims, timeline }[art.type];
-  return build ? build(canvas, art, ctx) : null;
+  return build ? build(canvas, art, ctx, ui) : null;
 }
 
-const stamp = (videoId, t, title, cls = 'stamp') =>
-  typeof t === 'number' ? h('button', { class: cls, onclick: (e) => { e.stopPropagation(); jumpTo(videoId, t, { title }); } }, '▶ ' + fmt(t)) : null;
+const stamp = (videoId, t, title) =>
+  typeof t === 'number' ? h('button', { class: 'stamp', type: 'button', onclick: (e) => { e.stopPropagation(); jumpTo(videoId, t, { title }); } }, '▶ ' + fmt(t)) : null;
 
 // ─── study: a deck whose answers are the creator explaining it ─────────────
-function flashcards(canvas, art) {
-  const cards = art.cards;
-  let order = cards.map((_, i) => i);
-  let pos = 0;
-  let flipped = false;
-  const known = new Set();
-
-  const deck = h('div', { class: 'deck' });
-  const progress = h('i');
-  const pos_ = h('span', { class: 'pos' });
-
-  function render() {
-    progress.style.width = (known.size / cards.length * 100) + '%';
-    if (!order.length) {
-      deck.replaceChildren(
-        h('div', { class: 'deck-progress' }, progress),
-        h('div', { class: 'deck-done' },
-          h('h4', null, 'deck cleared 🎉'),
-          h('p', { style: { color: 'var(--haze)', margin: '0 0 16px' } }, `You know all ${cards.length}. Come back tomorrow and run it again — that’s when it actually sticks.`),
-          h('button', { class: 'ghost hot', onclick: reset }, 'run it again'),
-        ),
-      );
-      return;
-    }
-    pos = Math.min(pos, order.length - 1);
-    const card = cards[order[pos]];
-    pos_.textContent = `${pos + 1} / ${order.length}`;
-    const flash = h('div', {
-      class: 'flash' + (flipped ? ' flipped' : ''), tabindex: '0', role: 'button',
-      'aria-label': flipped ? 'Answer. Press space to flip back.' : 'Question. Press space to see the answer.',
-      onclick: (e) => { if (!e.target.closest('button')) flip(); },
-      onkeydown: onKey,
-    },
-      h('div', { class: 'flash-inner' },
-        h('div', { class: 'flash-face flash-front' },
-          h('small', null, `question · ${known.size} of ${cards.length} known`),
-          h('div', { class: 'q' }, card.q),
-          h('span', { class: 'hint-flip' }, 'tap or space to flip'),
-        ),
-        h('div', { class: 'flash-face flash-back' },
-          h('small', null, 'answer'),
-          h('div', { class: 'a' }, card.a),
-          typeof card.t === 'number'
-            ? h('button', { class: 'explain', onclick: () => jumpTo(canvas.video_id, card.t, { title: card.q }) }, `▶ hear them explain it · ${fmt(card.t)}`)
-            : null,
-        ),
-      ),
-    );
-    deck.replaceChildren(
-      h('div', { class: 'deck-progress' }, progress),
-      flash,
-      h('div', { class: 'deck-bar' },
-        h('button', { class: 'mini', onclick: () => move(-1), 'aria-label': 'Previous card' }, '←'),
-        pos_,
-        h('button', { class: 'mini', onclick: () => move(1), 'aria-label': 'Next card' }, '→'),
-        h('button', { class: 'mini', onclick: again, disabled: !flipped }, 'again ↺'),
-        h('button', { class: 'mini' + (flipped ? ' on' : ''), onclick: gotIt, disabled: !flipped }, 'got it ✓'),
-        h('span', { style: { flex: '1' } }),
-        h('button', { class: 'mini', onclick: shuffle }, 'shuffle'),
-        h('button', { class: 'mini', onclick: anki }, 'download for anki ↓'),
-      ),
-    );
-    return flash;
-  }
-  function focusCard() { const f = deck.querySelector('.flash'); if (f) f.focus({ preventScroll: true }); }
-  function flip() { flipped = !flipped; render(); focusCard(); }
-  function move(d) { pos = (pos + d + order.length) % order.length; flipped = false; render(); focusCard(); }
-  function again() { const [x] = order.splice(pos, 1); order.push(x); flipped = false; render(); focusCard(); }
-  function gotIt() { known.add(order[pos]); order.splice(pos, 1); flipped = false; render(); focusCard(); }
-  function shuffle() {
-    for (let i = order.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [order[i], order[j]] = [order[j], order[i]]; }
-    pos = 0; flipped = false; render(); toast('shuffled');
-  }
-  function reset() { order = cards.map((_, i) => i); known.clear(); pos = 0; flipped = false; render(); }
-  function onKey(e) {
-    if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); flip(); }
-    else if (e.key === 'ArrowRight') { e.preventDefault(); move(1); }
-    else if (e.key === 'ArrowLeft') { e.preventDefault(); move(-1); }
-    else if (e.key === '1' && flipped) again();
-    else if (e.key === '2' && flipped) gotIt();
-  }
-  function anki() {
+function flashcards(canvas, art, ctx) {
+  const holder = h('div');
+  const cards = art.cards.map((c) => ({
+    id: `${canvas.video_id}:${c.id}`, q: c.q, a: c.a, t: c.t, video_id: canvas.video_id, headline: canvas.headline, box: 0, reps: 0, due: null,
+  }));
+  const anki = () => {
     const clean = (s) => String(s).replace(/[\t\r\n]+/g, ' ');
     const rows = cards.map((c) => `${clean(c.q)}\t${clean(c.a)}${typeof c.t === 'number' ? ` (${fmt(c.t)} — ${ytUrl(canvas.video_id, c.t)})` : ''}`);
     download(rows.join('\n'), `${slug(canvas.headline)}-anki.txt`, 'text/plain;charset=utf-8');
     toast('saved — in Anki: File → Import, tab-separated ✓');
-  }
-
-  render();
-  return { title: 'cram deck', say: 'flip it, then hear them explain it. space flips, arrows move, 1 = again, 2 = got it.', el: deck };
+  };
+  const mount = () => holder.replaceChildren(studyDeck({
+    cards,
+    tools: [
+      ({ shuffle }) => h('button', { class: 'mini', type: 'button', onclick: shuffle }, 'shuffle'),
+      () => h('button', { class: 'mini', type: 'button', onclick: anki }, 'anki ↓'),
+    ],
+  }).el);
+  // Each card's spaced-repetition level comes from the review deck.
+  holder.append(h('p', { class: 'hint' }, 'shuffling the deck…'));
+  loadDeck().then((d) => {
+    const byId = new Map((d.cards || []).map((c) => [c.id, c]));
+    cards.forEach((c) => { const st = byId.get(c.id); if (st) Object.assign(c, { box: st.box, due: st.due, reps: st.reps }); });
+  }).catch(() => {}).then(() => { if (ctx.alive()) mount(); });
+  return {
+    title: 'cram deck',
+    say: 'flip it, then hear them explain it. what you know comes back later, right before you’d forget it.',
+    el: holder,
+    tools: [h('a', { class: 'mini', href: '#/review' }, 'review deck →')],
+  };
 }
 
 // ─── howto: pantry, steps with timers, and a hands-free mode ───────────────
-function cookalong(canvas, art, ctx) {
-  const got = new Set();
-  const pantryList = h('div');
+function cookalong(canvas, art, ctx, ui) {
+  const got = ui.set_('pantry');
+  const pantryList = h('div', { role: 'group', 'aria-label': 'Ingredients' });
   function renderPantry() {
     pantryList.replaceChildren(...art.ingredients.map((ing, i) => h('button', {
-      class: 'ingr' + (got.has(i) ? ' got' : ''), onclick: () => { got.has(i) ? got.delete(i) : got.add(i); renderPantry(); },
-    }, h('span', { class: 'box' }), h('span', { class: 'i-name' }, ing.item), h('span', { class: 'qty' }, ing.qty))));
+      class: 'ingr' + (got.has(i) ? ' got' : ''), type: 'button', role: 'checkbox', 'aria-checked': String(got.has(i)),
+      onclick: () => { ui.toggle('pantry', i); got.has(i) ? got.delete(i) : got.add(i); renderPantry(); },
+    }, h('span', { class: 'box', 'aria-hidden': 'true' }), h('span', { class: 'i-name' }, ing.item), h('span', { class: 'qty' }, ing.qty))));
   }
   renderPantry();
 
@@ -131,36 +74,40 @@ function cookalong(canvas, art, ctx) {
     copy(need.map((x) => `- ${[x.qty, x.item].filter(Boolean).join(' ')}`).join('\n'), `shopping list copied — ${need.length} to buy ✓`);
   };
 
-  const pantry = art.ingredients.length ? h('aside', { class: 'pantry' },
-    h('h4', null, 'the pantry'),
+  const pantry = art.ingredients.length ? h('div', { class: 'pantry', role: 'group', 'aria-label': 'The pantry' },
+    h('h3', null, 'the pantry'),
     h('div', { class: 'yields' }, art.yields ? `makes ${art.yields} · ` : '', 'tick what you’ve got'),
     pantryList,
-    h('div', { class: 'pantry-actions' },
-      h('button', { class: 'mini', onclick: shopping }, 'copy shopping list'),
+    h('div', { class: 'row' },
+      h('button', { class: 'mini', type: 'button', onclick: shopping }, 'copy shopping list'),
     ),
   ) : null;
 
-  const steps = h('div', { class: 'steps' }, art.steps.map((s, i) => h('div', { class: 'step-card' },
-    h('span', { class: 'num' }, String(i + 1)),
+  const steps = h('ol', { class: 'steps' }, art.steps.map((s, i) => h('li', { class: 'step-card' },
+    h('span', { class: 'num', 'aria-hidden': 'true' }, String(i + 1)),
     h('div', { class: 's-body' },
       h('div', { class: 's-text' }, s.text),
-      h('div', { class: 's-actions' },
+      h('div', { class: 'row' },
         stamp(canvas.video_id, s.t, `step ${i + 1}`),
-        s.timer_seconds ? h('button', { class: 'timer-btn', onclick: () => startTimer(`step ${i + 1}: ${s.text}`, s.timer_seconds) }, `⏱ ${fmt(s.timer_seconds)} timer`) : null,
+        s.timer_seconds ? h('button', { class: 'mini warm', type: 'button', onclick: () => startTimer(`step ${i + 1}: ${s.text}`, s.timer_seconds) }, `⏱ ${fmt(s.timer_seconds)} timer`) : null,
       ),
     ),
   )));
 
-  const focusBtn = h('button', { class: 'mini on', onclick: () => handsFree(canvas, art, ctx) }, 'hands-free mode ↗');
-  const el = h('div', { class: 'cook' }, pantry, steps);
-  if (!pantry) el.style.gridTemplateColumns = '1fr';
+  const focusBtn = h('button', { class: 'mini on', type: 'button', onclick: () => handsFree(canvas, art, ctx) }, 'hands-free mode ↗');
+  const el = h('div', { class: 'cook' + (pantry ? '' : ' solo') }, pantry, steps);
   return { title: 'cook-along', say: 'tick the pantry, run the timers, or go hands-free and follow along step by step.', el, tools: [focusBtn] };
 }
 
 function handsFree(canvas, art, ctx) {
   let i = 0;
+  const opener = document.activeElement;
   const overlay = h('div', { class: 'focus-overlay', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Hands-free cook-along' });
-  const close = () => { overlay.remove(); document.removeEventListener('keydown', onKey); };
+  const close = () => {
+    overlay.remove();
+    document.removeEventListener('keydown', onKey);
+    if (opener && opener.focus) opener.focus();
+  };
   function onKey(e) {
     if (e.key === 'Escape') close();
     else if (e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); go(1); }
@@ -170,18 +117,20 @@ function handsFree(canvas, art, ctx) {
   function render() {
     const s = art.steps[i];
     overlay.replaceChildren(h('div', { class: 'focus-box' },
-      h('div', { class: 'f-top' }, h('span', null, `step ${i + 1} of ${art.steps.length}`), h('button', { class: 'icon-btn', 'aria-label': 'Close', onclick: close }, '✕')),
-      h('div', { class: 'f-step' }, s.text),
+      h('div', { class: 'f-top' }, h('span', null, `step ${i + 1} of ${art.steps.length}`), h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Close', onclick: close }, '✕')),
+      h('div', { class: 'f-step', 'aria-live': 'polite' }, s.text),
       h('div', { class: 'f-bar' },
-        h('button', { class: 'ghost', onclick: () => go(-1), disabled: i === 0 }, '← back'),
+        h('button', { class: 'ghost', type: 'button', onclick: () => go(-1), disabled: i === 0 }, '← back'),
         stamp(canvas.video_id, s.t, `step ${i + 1}`),
-        s.timer_seconds ? h('button', { class: 'timer-btn', onclick: () => startTimer(`step ${i + 1}: ${s.text}`, s.timer_seconds) }, `⏱ start ${fmt(s.timer_seconds)}`) : null,
+        s.timer_seconds ? h('button', { class: 'mini warm', type: 'button', onclick: () => startTimer(`step ${i + 1}: ${s.text}`, s.timer_seconds) }, `⏱ start ${fmt(s.timer_seconds)}`) : null,
         h('span', { class: 'spacer' }),
         i < art.steps.length - 1
-          ? h('button', { class: 'cta', onclick: () => go(1) }, 'next step →')
-          : h('button', { class: 'cta', onclick: () => { close(); toast('done! go eat 🍽️'); } }, 'done 🎉'),
+          ? h('button', { class: 'cta', type: 'button', onclick: () => go(1) }, 'next step →')
+          : h('button', { class: 'cta', type: 'button', onclick: () => { close(); toast('done! go eat 🍽️'); } }, 'done 🎉'),
       ),
     ));
+    const next = overlay.querySelector('.cta');
+    if (next) next.focus();
   }
   document.addEventListener('keydown', onKey);
   ctx.onCleanup(close);
@@ -192,9 +141,9 @@ function handsFree(canvas, art, ctx) {
 // ─── verdict: the reviewer's call, and who should ignore it ────────────────
 function verdict(canvas, art) {
   const list = (cls, label, items, mark, withStamps) => items.length ? h('div', { class: 'v-list ' + cls },
-    h('h5', null, label),
+    h('h3', null, label),
     h('ul', null, items.map((it) => h('li', null,
-      h('span', { class: 'mk' }, mark),
+      h('span', { class: 'mk', 'aria-hidden': 'true' }, mark),
       h('span', { class: 'li-text' }, withStamps ? it.text : it),
       withStamps ? stamp(canvas.video_id, it.t, it.text) : null,
     ))),
@@ -223,10 +172,9 @@ function verdict(canvas, art) {
 }
 
 // ─── yap: every checkable claim, and a place to mark what holds up ─────────
-function claims(canvas, art) {
-  const key = `yapmap.claims.${canvas.video_id}`;
-  const marks = lsGet(key, {});
-  const summary = h('div', { class: 'claims-summary' });
+function claims(canvas, art, ctx, ui) {
+  const marks = ui.get('claims', {});
+  const summary = h('p', { class: 'claims-summary' });
   const wrap = h('div', { class: 'claims' });
 
   function renderSummary() {
@@ -240,10 +188,10 @@ function claims(canvas, art) {
   wrap.append(...art.claims.map((c, i) => {
     const card = h('div', { class: 'claim' });
     const tri = (value, label) => h('button', {
-      class: 'tri ' + value + (marks[i] === value ? ' on' : ''),
+      class: 'mini tri ' + value + (marks[i] === value ? ' on' : ''), type: 'button', 'aria-pressed': String(marks[i] === value),
       onclick: () => {
-        marks[i] === value ? delete marks[i] : (marks[i] = value);
-        lsSet(key, marks);
+        if (marks[i] === value) delete marks[i]; else marks[i] = value;
+        ui.set('claims', marks);
         paint();
         renderSummary();
       },
@@ -257,7 +205,7 @@ function claims(canvas, art) {
           stamp(canvas.video_id, c.t, c.claim),
         ),
         c.check ? h('div', { class: 'c-check' }, h('b', null, 'to check'), c.check) : null,
-        h('div', { class: 'c-actions' },
+        h('div', { class: 'row' },
           h('a', { class: 'mini', href: searchUrl(c.check || c.claim), target: '_blank', rel: 'noopener' }, 'look it up ↗'),
           tri('holds', '✓ holds up'), tri('nope', '✗ doesn’t'), tri('unsure', '? unsure'),
         ),
@@ -280,7 +228,7 @@ function timeline(canvas, art, ctx) {
   const played = h('div', { class: 'played' });
   const head = h('div', { class: 'head' });
   const dots = events.map((e, i) => typeof e.t === 'number' ? h('button', {
-    class: 'dot', style: { left: pct(e.t) + '%' }, title: `${fmt(e.t)} — ${e.label}`, 'aria-label': `Jump to ${e.label}`,
+    class: 'dot', type: 'button', style: { left: pct(e.t) + '%' }, title: `${fmt(e.t)} — ${e.label}`, 'aria-label': `Jump to ${e.label}`,
     onclick: (ev) => { ev.stopPropagation(); jumpTo(canvas.video_id, e.t, { title: e.label }); setActive(i); },
   }) : null);
   const scrub = h('div', {
@@ -366,3 +314,4 @@ export function artifactMarkdown(canvas, link) {
   }
   return out;
 }
+

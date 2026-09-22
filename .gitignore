@@ -1,7 +1,7 @@
-# generated canvases, beefs, purges and voices (cached Claude output)
+# generated canvases, transcripts, answers, beefs, purges and voices (cached output)
 .cache/
 
-# your commitments and activity -- personal, never committed
+# your commitments, flashcard reviews and activity -- personal, never committed
 .yapmap/
 
 # the Pages site is assembled in CI from templates/, static/ and demo/

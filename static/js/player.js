@@ -1,12 +1,12 @@
-// One YouTube player for the whole app. It lives in the dock: small for
-// timestamp jumps, full-screen "theater" for the no-yap cut. Growing and
-// shrinking the dock only resizes the iframe -- moving it in the DOM would
-// reload the video.
+// One YouTube player for the whole app. It lives in the dock: a slim bar on
+// phones, a small window on desktop, full-screen "theater" for the no-yap cut.
+// Growing and shrinking the dock only resizes the iframe -- moving it in the
+// DOM would reload the video.
 
 import { h, fmt, fmtDur, toast, ytUrl } from './util.js';
 import { logEvent } from './store.js';
 
-const yt = { player: null, ready: false, whenReady: null, videoId: null, apiPromise: null };
+const yt = { player: null, ready: false, whenReady: null, videoId: null, apiPromise: null, playing: false };
 const listeners = new Set();
 let ticker = null;
 let cut = null;
@@ -17,7 +17,14 @@ export function initDock() {
   document.getElementById('dock-min').addEventListener('click', () => {
     if (cut) return exitTheater();
     dockEl().classList.toggle('min');
+    syncHead();
   });
+  document.getElementById('dock-big').addEventListener('click', () => {
+    dockEl().classList.toggle('big');
+    dockEl().classList.remove('min');
+    syncHead();
+  });
+  document.getElementById('dock-play').addEventListener('click', togglePlay);
   document.getElementById('dock-close').addEventListener('click', closeDock);
   document.addEventListener('keydown', (e) => {
     if (!cut || !dockEl().classList.contains('theater')) return;
@@ -29,21 +36,36 @@ export function initDock() {
   });
 }
 
+function syncHead() {
+  const d = dockEl();
+  const theater = d.classList.contains('theater');
+  const min = document.getElementById('dock-min');
+  min.textContent = theater ? '▭' : d.classList.contains('min') ? '▢' : '▁';
+  min.setAttribute('aria-label', theater ? 'Shrink to the mini player' : d.classList.contains('min') ? 'Show the video' : 'Hide the video, keep the sound');
+  const big = document.getElementById('dock-big');
+  big.setAttribute('aria-label', d.classList.contains('big') ? 'Smaller player' : 'Bigger player');
+  big.textContent = d.classList.contains('big') ? '⤡' : '⤢';
+  const play = document.getElementById('dock-play');
+  play.textContent = yt.playing ? '⏸' : '▶';
+  play.setAttribute('aria-label', yt.playing ? 'Pause' : 'Play');
+  document.body.classList.toggle('has-dock', !d.hidden && !theater);
+}
+
 function showDock(state, title) {
   const d = dockEl();
   d.hidden = false;
   d.classList.remove('min', 'theater');
   if (state === 'theater') d.classList.add('theater');
   document.getElementById('dock-title').textContent = title || 'the tape';
-  document.getElementById('dock-min').textContent = state === 'theater' ? '▭' : '▁';
-  document.getElementById('dock-min').setAttribute('aria-label', state === 'theater' ? 'Shrink to the mini player' : 'Minimise player');
+  syncHead();
 }
 
 function closeDock() {
   if (cut) cut = null;
   try { if (yt.player && yt.ready) yt.player.pauseVideo(); } catch (e) { /* player gone */ }
   dockEl().hidden = true;
-  dockEl().classList.remove('theater', 'min');
+  dockEl().classList.remove('theater', 'min', 'big');
+  syncHead();
   stopTickerIfIdle();
 }
 
@@ -78,6 +100,7 @@ function createPlayer(videoId, start) {
       events: {
         onReady: () => { yt.ready = true; try { yt.player.playVideo(); } catch (e) { /* autoplay refused */ } resolve(); },
         onError: (e) => { if (!yt.ready) reject(new Error('player ' + e.data)); else embedFailed(e.data); },
+        onStateChange: (e) => { yt.playing = e.data === 1 || e.data === 3; syncHead(); },
       },
     });
   });
@@ -86,7 +109,7 @@ function createPlayer(videoId, start) {
 
 async function goTo(videoId, start) {
   await loadApi();
-  if (!yt.player) { await createPlayer(videoId, start); return; }
+  if (!yt.player) { await createPlayer(videoId, start); startTicker(); return; }
   await yt.whenReady;
   if (yt.videoId !== videoId) {
     yt.videoId = videoId;
@@ -95,6 +118,7 @@ async function goTo(videoId, start) {
     yt.player.seekTo(start || 0, true);
     yt.player.playVideo();
   }
+  startTicker();
 }
 
 function embedFailed(code) {
@@ -102,18 +126,16 @@ function embedFailed(code) {
   cut = null;
   showDock('mini', "can't play this one here");
   const body = document.querySelector('#dock .dock-body');
-  const note = h('div', { class: 'cut-done' },
+  const note = h('div', { class: 'embed-note' },
     h('p', null, code === 101 || code === 150 ? 'This creator switched off embedding, so it has to play on YouTube.' : 'The player tripped over this video.'),
     h('a', { class: 'ghost', href: ytUrl(vid), target: '_blank', rel: 'noopener' }, 'open on youtube ↗'),
   );
-  note.style.cssText = 'position:absolute;inset:0;display:grid;place-content:center;background:var(--panel);';
-  body.style.position = 'relative';
-  body.querySelectorAll('.cut-done').forEach((n) => n.remove());
+  body.querySelectorAll('.embed-note').forEach((n) => n.remove());
   body.appendChild(note);
 }
 
 function clearEmbedNote() {
-  document.querySelectorAll('#dock .dock-body .cut-done').forEach((n) => n.remove());
+  document.querySelectorAll('#dock .dock-body .embed-note').forEach((n) => n.remove());
 }
 
 export function openAt(videoId, t) {
@@ -129,6 +151,7 @@ export async function jumpTo(videoId, t, { title } = {}) {
     await goTo(videoId, t);
   } catch (e) {
     dockEl().hidden = true;
+    syncHead();
     toast("the player couldn't load — opening YouTube instead");
     openAt(videoId, t);
   }
@@ -136,7 +159,12 @@ export async function jumpTo(videoId, t, { title } = {}) {
 
 export const currentVideo = () => yt.videoId;
 
-// ─── time listeners (timeline sync, the cut) ─────────────────────────────
+export function togglePlay() {
+  if (!yt.player || !yt.ready) return;
+  try { yt.player.getPlayerState() === 1 ? yt.player.pauseVideo() : yt.player.playVideo(); } catch (e) { /* ignore */ }
+}
+
+// ─── time listeners (map follow-along, timeline sync, the cut) ────────────
 export function onTime(cb) {
   listeners.add(cb);
   startTicker();
@@ -156,7 +184,8 @@ function tick() {
   const t = currentTime();
   if (t === null) return;
   if (cut && !dockEl().hidden) cutTick(t);
-  listeners.forEach((cb) => { try { cb(t, yt.videoId); } catch (e) { /* a listener's bug is its own */ } });
+  if (dockEl().hidden) return;
+  listeners.forEach((cb) => { try { cb(t, yt.videoId, yt.playing); } catch (e) { /* a listener's bug is its own */ } });
 }
 
 // ─── the no-yap cut ──────────────────────────────────────────────────────
@@ -175,7 +204,7 @@ export async function playCut({ videoId, title, segments, duration }) {
   logEvent('cut', { video_id: videoId });
   try {
     await goTo(videoId, segments[0].start);
-    cut && (cut.settleUntil = Date.now() + 1200);
+    if (cut) cut.settleUntil = Date.now() + 1200;
   } catch (e) {
     closeDock();
     toast("the player couldn't load — opening YouTube instead");
@@ -198,11 +227,6 @@ function stepClip(delta) {
   if (!cut) return;
   if (cut.done && delta < 0) return seekClip(cut.segs.length - 1);
   seekClip(cut.i + delta);
-}
-
-function togglePlay() {
-  if (!yt.player || !yt.ready) return;
-  try { yt.player.getPlayerState() === 1 ? yt.player.pauseVideo() : yt.player.playVideo(); } catch (e) { /* ignore */ }
 }
 
 function cutTick(t) {
@@ -240,7 +264,7 @@ function renderCut() {
       h('p', null, duration
         ? `${fmtDur(duration)} of video → ${fmtDur(total)}. That's ~${fmtDur(saved)} of yap you didn't sit through.`
         : `${fmtDur(total)} of the parts that matter.`),
-      h('div', { style: { display: 'flex', gap: '8px', justifyContent: 'center', flexWrap: 'wrap' } },
+      h('div', { class: 'row center' },
         h('button', { class: 'cb-btn', onclick: () => seekClip(0) }, '↺ replay'),
         h('button', { class: 'cb-btn', onclick: closeDock }, 'back to the canvas'),
       ),

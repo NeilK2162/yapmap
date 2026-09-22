@@ -1,6 +1,7 @@
-import { h, fmt, fmtDur, slug, toast, download, parseVideoId, thumb, ytUrl, sectionHead } from '../util.js';
-import { getBeef, beefIndex, isStatic } from '../api.js';
-import { createMap } from '../map.js';
+import { h, fmt, fmtDur, slug, toast, download, parseVideoId, thumb, ytUrl, sectionHead, prefLang } from '../util.js';
+import { getBeefCached, beefIndex, isStatic, swapBeef } from '../api.js';
+import { startJob, subscribe, cancelJob, findRunning } from '../jobs.js';
+import { createMindmap } from '../mindmap.js';
 import { jumpTo } from '../player.js';
 
 const LOADING = [
@@ -18,7 +19,7 @@ export async function render(root, params, query, ctx) {
   if (aId) inputA.value = 'https://youtu.be/' + aId;
   if (bId) inputB.value = 'https://youtu.be/' + bId;
 
-  const result = h('div');
+  const result = h('div', { class: 'result-slot' });
   page.append(
     h('div', { class: 'page-head' },
       h('span', { class: 'kicker' }, 'beef mode'),
@@ -35,13 +36,12 @@ export async function render(root, params, query, ctx) {
       },
     },
       h('div', { class: 'ring-form' },
-        h('div', { class: 'corner a' }, h('label', null, 'corner A'), inputA),
-        h('span', { class: 'vs' }, 'vs'),
-        h('div', { class: 'corner b' }, h('label', null, 'corner B'), inputB),
+        h('div', { class: 'corner a' }, h('label', null, 'corner A', inputA)),
+        h('span', { class: 'vs', 'aria-hidden': 'true' }, 'vs'),
+        h('div', { class: 'corner b' }, h('label', null, 'corner B', inputB)),
       ),
       h('button', { class: 'cta accent', type: 'submit' }, 'start the beef 🥩'),
     ),
-    h('div', { style: { height: '44px' } }),
     result,
   );
 
@@ -50,41 +50,71 @@ export async function render(root, params, query, ctx) {
       const demos = await beefIndex();
       if (ctx.alive() && demos.length) {
         result.append(h('div', { class: 'x-card' },
-          h('h3', null, 'try the demo beef'),
+          h('h2', null, 'try the demo beef'),
           h('p', null, 'Making a new one needs the local app — but here’s a real one to poke at.'),
-          h('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap' } },
-            demos.map((x) => h('a', { class: 'ghost hot', href: `#/beef/${x.a}/${x.b}` }, x.headline || x.topic || 'open'))),
+          h('div', { class: 'row' }, demos.map((x) => h('a', { class: 'ghost hot', href: `#/beef/${x.a}/${x.b}` }, x.headline || x.topic || 'open'))),
         ));
       }
     }
     return;
   }
 
-  const line = h('h2', null, LOADING[0]);
-  let i = 0;
-  const spin = setInterval(() => { i = (i + 1) % LOADING.length; line.textContent = LOADING[i]; }, 2600);
-  ctx.onCleanup(() => clearInterval(spin));
-  result.replaceChildren(h('div', { class: 'loading', style: { paddingTop: '10px' } },
-    h('div', { class: 'orb' }), line, h('p', null, 'Reading two whole transcripts. Usually one to three minutes.')));
-
-  let beef;
-  try {
-    beef = await getBeef(aId, bId, { force: query.get('force') === '1' });
-  } catch (err) {
-    clearInterval(spin);
+  const force = query.get('force') === '1';
+  const lang = prefLang();
+  const show = (beef) => {
     if (!ctx.alive()) return;
-    result.replaceChildren(h('div', { class: 'error', style: { margin: '0' } }, h('div', { class: 'card' },
-      h('h3', null, err.needsInstall ? 'that beef needs the real thing.' : 'the beef got cancelled.'),
+    result.replaceChildren(buildResult(beef.a.video_id === aId ? beef : swapBeef(beef), ctx));
+  };
+  const fail = (err) => {
+    if (!ctx.alive()) return;
+    result.replaceChildren(h('div', { class: 'error inline' }, h('div', { class: 'card' },
+      h('h2', null, err.needsInstall ? 'that beef needs the real thing.' : err.code === 'usage_limit' ? 'out of Claude for now.' : 'the beef got cancelled.'),
       h('p', null, err.message),
-      err.needsInstall ? h('a', { class: 'ghost hot', href: '#/extras' }, 'how to install') : null,
+      h('div', { class: 'row' },
+        err.needsInstall ? h('a', { class: 'ghost hot', href: '#/extras' }, 'how to install') : null,
+        !err.needsInstall && err.code !== 'usage_limit' ? h('a', { class: 'ghost', href: `#/beef/${aId}/${bId}?force=1` }, 'try again ↻') : null,
+      ),
     )));
-    return;
+  };
+
+  let rec = findRunning('beef', (p) => (p.a === aId && p.b === bId) || (p.a === bId && p.b === aId));
+  if (!rec && !force) {
+    try {
+      const cached = await getBeefCached(aId, bId, lang);
+      if (cached) { show(cached); return; }
+    } catch (err) { fail(err); return; }
   }
-  clearInterval(spin);
+  if (!rec) {
+    try { rec = await startJob('beef', { a: aId, b: bId, lang, force }); } catch (err) { fail(err); return; }
+    if (force) history.replaceState(null, '', `#/beef/${aId}/${bId}`);
+  }
   if (!ctx.alive()) return;
-  if (query.get('force') === '1') history.replaceState(null, '', `#/beef/${aId}/${bId}`);
-  if (!beef.cached) document.dispatchEvent(new CustomEvent('yapmap:changed'));
-  result.replaceChildren(buildResult(beef, ctx));
+
+  const line = h('h2', { class: 'ld-line' }, LOADING[0]);
+  const detail = h('p', null, 'Reading two whole transcripts. Usually one to three minutes — you can leave, it keeps going.');
+  const clock = h('span', { class: 'pg-clock' });
+  const started = Date.now();
+  let i = 0;
+  const spin = setInterval(() => {
+    i += 1;
+    if (i % 3 === 0) line.textContent = LOADING[(i / 3) % LOADING.length];
+    clock.textContent = `${Math.round((Date.now() - started) / 1000)}s`;
+  }, 1000);
+  ctx.onCleanup(() => clearInterval(spin));
+  result.replaceChildren(h('div', { class: 'loading', 'aria-live': 'polite' },
+    h('div', { class: 'orb', 'aria-hidden': 'true' }), line, detail,
+    h('div', { class: 'row center' }, clock, h('button', { class: 'mini', type: 'button', onclick: () => cancelJob(rec) }, 'cancel')),
+  ));
+
+  const off = subscribe(rec, (evt) => {
+    if (evt.type === 'stage' && evt.stage === 'transcript') detail.textContent = 'Grabbing both transcripts…';
+    else if (evt.type === 'meta') detail.textContent = `${evt.a.title}  vs  ${evt.b.title}`;
+    else if (evt.type === 'warning') toast(evt.message);
+    else if (evt.type === 'done') { clearInterval(spin); if (!evt.result.cached) document.dispatchEvent(new CustomEvent('yapmap:changed')); show(evt.result); }
+    else if (evt.type === 'error' || evt.type === 'lost') { clearInterval(spin); const e = new Error(evt.message); e.code = evt.code; fail(e); }
+    else if (evt.type === 'cancelled') { clearInterval(spin); fail(new Error('Cancelled — nothing was saved.')); }
+  });
+  ctx.onCleanup(off);
 }
 
 function fighter(side, tag) {
@@ -100,7 +130,7 @@ function fighter(side, tag) {
 
 function sideStamp(side, t, which, label) {
   return typeof t === 'number'
-    ? h('button', { class: 'stamp ' + which + '-side', onclick: () => jumpTo(side.video_id, t, { title: label }) }, `▶ ${which.toUpperCase()} ${fmt(t)}`)
+    ? h('button', { class: 'stamp ' + which + '-side', type: 'button', onclick: () => jumpTo(side.video_id, t, { title: label }) }, `▶ ${which.toUpperCase()} ${fmt(t)}`)
     : null;
 }
 
@@ -110,12 +140,12 @@ function buildResult(beef, ctx) {
   let n = 0;
   const sec = (title, say, body, ...tools) => h('section', { class: 'sec' }, sectionHead(++n, title, say, ...tools), body);
 
-  wrap.append(h('header', { class: 'crown', style: { marginBottom: '26px' } },
+  wrap.append(h('header', { class: 'crown' },
     h('div', { class: 'sticker' }, ('beef · ' + (beef.topic || 'the matchup')).toLowerCase()),
-    h('h2', null, beef.headline || `${a.title} vs ${b.title}`),
-    h('div', { class: 'fighters' }, fighter(a, 'A'), h('span', { class: 'vs' }, 'vs'), fighter(b, 'B')),
+    h('h2', { class: 'c-title' }, beef.headline || `${a.title} vs ${b.title}`),
+    h('div', { class: 'fighters' }, fighter(a, 'A'), h('span', { class: 'vs', 'aria-hidden': 'true' }, 'vs'), fighter(b, 'B')),
     h('div', { class: 'crown-actions' },
-      h('button', { class: 'ghost', onclick: () => { download(beefMarkdown(beef), `${slug(beef.headline || 'beef')}-beef.md`); toast('beef saved ✓'); } }, 'take the beef ↓'),
+      h('button', { class: 'ghost', type: 'button', onclick: () => { download(beefMarkdown(beef), `${slug(beef.headline || 'beef')}-beef.md`); toast('beef saved ✓'); } }, 'take the beef ↓'),
       h('a', { class: 'ghost', href: `#/beef/${b.video_id}/${a.video_id}` }, 'swap corners ⇄'),
       !isStatic() ? h('a', { class: 'ghost', href: `#/beef/${a.video_id}/${b.video_id}?force=1` }, 'rematch ↻') : null,
       h('a', { class: 'ghost', href: '#/beef' }, 'new beef'),
@@ -123,12 +153,12 @@ function buildResult(beef, ctx) {
   ));
 
   if (!beef.related) wrap.append(h('div', { class: 'warn' }, '⚠ These two aren’t really about the same thing, so there isn’t much to fight about. Try two takes on one topic.'));
-  if (beef.verdict) wrap.append(h('div', { class: 'ref', style: { marginBottom: '56px' } }, h('small', null, 'the ref’s call'), beef.verdict));
+  if (beef.verdict) wrap.append(h('div', { class: 'ref' }, h('small', null, 'the ref’s call'), beef.verdict));
 
   if (beef.clash.length) {
     wrap.append(sec('the beef', 'where they genuinely disagree — play each side and decide for yourself.',
       h('div', { class: 'clash' }, beef.clash.map((c) => h('div', { class: 'clash-row' },
-        h('div', { class: 'c-topic' }, c.topic),
+        h('h3', { class: 'c-topic' }, c.topic),
         h('div', { class: 'clash-sides' },
           h('div', { class: 'side a' }, h('span', { class: 's-who' }, 'A says'), c.a, sideStamp(a, c.t_a, 'a', c.topic)),
           h('div', { class: 'side b' }, h('span', { class: 's-who' }, 'B says'), c.b, sideStamp(b, c.t_b, 'b', c.topic)),
@@ -147,7 +177,7 @@ function buildResult(beef, ctx) {
 
   if (beef.only_a.length || beef.only_b.length) {
     const col = (cls, title, items, side, which) => h('div', { class: cls },
-      h('h4', null, title),
+      h('h3', null, title),
       h('div', { class: 'plain-list' }, items.length
         ? items.map((p) => h('div', { class: 'plain-item' }, h('span', { class: 'pi-text' }, p.point), sideStamp(side, p.t, which, p.point)))
         : h('div', { class: 'plain-item' }, 'nothing only they said')),
@@ -156,23 +186,38 @@ function buildResult(beef, ctx) {
       h('div', { class: 'split' }, col('col-a', 'only A', beef.only_a, a, 'a'), col('col-b', 'only B', beef.only_b, b, 'b'))));
   }
 
-  const card = h('div', { class: 'map-card' }, h('div', { class: 'map-legend' }, 'the whole fight, as a map'));
-  wrap.append(sec('the map', 'the beef, the common ground and the blind spots in one tree.', card));
-  const map = createMap(card, beefMindmap(beef), { expandLevel: 3 });
+  // The whole fight as a map: tap a leaf and it plays that side's moment.
+  const card = h('div', { class: 'map-card', tabindex: '0', role: 'group', 'aria-label': 'The beef as a mindmap. Tap an idea to play it.' });
+  wrap.append(sec('the map', 'the beef, the common ground and the blind spots in one tree. tap a side to hear it.',
+    h('div', { class: 'map-shell plain' }, h('div', { class: 'map-stage' }, card))));
+  const map = createMindmap(card, {
+    level: 3,
+    title: `The beef: ${beef.topic || 'the matchup'}`,
+    onSelect: (node) => {
+      if (!node || typeof node.t !== 'number' || !node.side) return;
+      const side = node.side === 'a' ? a : b;
+      jumpTo(side.video_id, node.t, { title: node.label });
+    },
+    onPlay: (node) => { if (node.side) jumpTo((node.side === 'a' ? a : b).video_id, node.t, { title: node.label }); },
+  });
+  requestAnimationFrame(() => map.setTree(beefTree(beef)));
   ctx.onCleanup(() => map.destroy());
   return wrap;
 }
 
-function beefMindmap(beef) {
-  const lines = [`# ${beef.topic || 'the beef'}`, ''];
+function beefTree(beef) {
+  const point = (side, text, t) => ({ label: `${side.toUpperCase()}: ${text}`, t, side, note: '', children: [] });
+  const children = [];
   if (beef.clash.length) {
-    lines.push('## the beef');
-    beef.clash.forEach((c) => lines.push(`- ${c.topic}`, `  - A: ${c.a}`, `  - B: ${c.b}`));
+    children.push({
+      label: 'the beef', t: null, note: '',
+      children: beef.clash.map((c) => ({ label: c.topic, t: null, note: c.why || '', children: [point('a', c.a, c.t_a), point('b', c.b, c.t_b)] })),
+    });
   }
-  if (beef.agree.length) { lines.push('## they agree'); beef.agree.forEach((p) => lines.push(`- ${p.point}`)); }
-  if (beef.only_a.length) { lines.push('## only A'); beef.only_a.forEach((p) => lines.push(`- ${p.point}`)); }
-  if (beef.only_b.length) { lines.push('## only B'); beef.only_b.forEach((p) => lines.push(`- ${p.point}`)); }
-  return lines.join('\n');
+  if (beef.agree.length) children.push({ label: 'they agree', t: null, note: '', children: beef.agree.map((p) => ({ label: p.point, t: p.t_a, side: 'a', note: '', children: [] })) });
+  if (beef.only_a.length) children.push({ label: 'only A', t: null, note: '', children: beef.only_a.map((p) => point('a', p.point, p.t)) });
+  if (beef.only_b.length) children.push({ label: 'only B', t: null, note: '', children: beef.only_b.map((p) => point('b', p.point, p.t)) });
+  return { label: beef.topic || 'the beef', t: null, note: '', children };
 }
 
 function beefMarkdown(beef) {

@@ -2,7 +2,10 @@
 // Flask; in the GitHub Pages demo (no server) it reads the bundled demo/ files
 // and says so plainly when something needs the real thing.
 
+import { lsGet, lsSet, LANGS } from './util.js';
+
 let mode = null; // 'app' | 'static'
+let health = null;
 
 export async function detectMode() {
   if (mode) return mode;
@@ -15,6 +18,7 @@ export async function detectMode() {
     clearTimeout(timer);
     const data = res.ok ? await res.json() : null;
     mode = data && data.ok ? 'app' : 'static';
+    health = data;
   } catch (e) {
     mode = 'static';
   }
@@ -22,6 +26,7 @@ export async function detectMode() {
 }
 
 export const isStatic = () => mode === 'static';
+export const languages = () => (health && health.languages) || LANGS;
 
 export class NeedsInstall extends Error {
   constructor(what) {
@@ -46,6 +51,7 @@ export async function api(path, { method = 'GET', body } = {}) {
   if (!res.ok) {
     const err = new Error((data && data.error) || `Request failed (${res.status})`);
     err.status = res.status;
+    err.code = data && data.code;
     throw err;
   }
   return data;
@@ -65,16 +71,31 @@ export function demo(path) {
 }
 
 // ─── canvas ───────────────────────────────────────────────────────────────
-export async function getCanvas(id, { force = false } = {}) {
+/** The saved canvas, or null when this video hasn't been mapped yet. */
+export async function getCanvas(id, { lang } = {}) {
   if (isStatic()) {
-    try {
-      const data = await demo(`canvases/${id}.json`);
-      return { ...data, cached: true, outdated: false };
-    } catch (e) {
-      throw new NeedsInstall('Mapping a new video');
+    const tries = lang && lang !== 'en' ? [`canvases/${id}.${lang}.json`, `canvases/${id}.json`] : [`canvases/${id}.json`];
+    for (const path of tries) {
+      try {
+        const data = await demo(path);
+        const index = await demo('index.json').catch(() => ({ items: [] }));
+        const item = (index.items || []).find((x) => x.video_id === id);
+        return { ...data, cached: true, outdated: false, langs: (item && item.langs) || [data.lang || 'en'] };
+      } catch (e) { /* try the next */ }
     }
+    throw new NeedsInstall('Mapping a new video');
   }
-  return api('api/canvas', { method: 'POST', body: { url: id, force } });
+  try {
+    return await api(`api/canvas/${id}` + (lang ? `?lang=${encodeURIComponent(lang)}` : ''));
+  } catch (e) {
+    if (e.status === 404) return null;
+    throw e;
+  }
+}
+
+export async function deleteCanvas(id) {
+  if (isStatic()) throw new NeedsInstall('Deleting');
+  return api('api/canvas/' + id, { method: 'DELETE' });
 }
 
 export async function getMeta(id) {
@@ -82,15 +103,39 @@ export async function getMeta(id) {
   try { return await api('api/meta?url=' + encodeURIComponent(id)); } catch (e) { return null; }
 }
 
-export async function revoice(id, voice) {
+export async function revoice(id, voice, lang) {
   if (isStatic()) {
     try { return await demo(`voices/${id}.${voice}.json`); } catch (e) { throw new NeedsInstall('Re-voicing'); }
   }
-  return api('api/revoice', { method: 'POST', body: { video_id: id, voice } });
+  return api('api/revoice', { method: 'POST', body: { video_id: id, voice, lang } });
+}
+
+const transcripts = new Map();
+/** The transcript as timestamped blocks -- fetched once per video per page load. */
+export function getTranscript(id) {
+  if (!transcripts.has(id)) {
+    const p = isStatic() ? demo(`transcripts/${id}.json`) : api('api/transcript/' + id);
+    p.catch(() => transcripts.delete(id));
+    transcripts.set(id, p);
+  }
+  return transcripts.get(id);
+}
+
+export async function askHistory(id) {
+  if (isStatic()) {
+    const items = await demo(`ask/${id}.json`).catch(() => []);
+    return { items: Array.isArray(items) ? items : items.items || [], demo: true };
+  }
+  return api('api/ask/' + id);
+}
+
+export async function clearAsk(id) {
+  if (isStatic()) throw new NeedsInstall('Asking');
+  return api('api/ask/' + id, { method: 'DELETE' });
 }
 
 // ─── beef + purge ─────────────────────────────────────────────────────────
-export async function getBeef(a, b, { force = false } = {}) {
+export async function getBeefCached(a, b, lang) {
   if (isStatic()) {
     const index = await demo('beef/index.json').catch(() => []);
     const hit = index.find((x) => (x.a === a && x.b === b) || (x.a === b && x.b === a));
@@ -98,7 +143,12 @@ export async function getBeef(a, b, { force = false } = {}) {
     const data = await demo(`beef/${hit.key}.json`);
     return data.a.video_id === a ? data : swapBeef(data);
   }
-  return api('api/beef', { method: 'POST', body: { a, b, force } });
+  try {
+    return await api(`api/beef/${a}/${b}` + (lang ? `?lang=${encodeURIComponent(lang)}` : ''));
+  } catch (e) {
+    if (e.status === 404) return null;
+    throw e;
+  }
 }
 
 export async function beefIndex() {
@@ -106,7 +156,7 @@ export async function beefIndex() {
   return demo('beef/index.json').catch(() => []);
 }
 
-function swapBeef(p) {
+export function swapBeef(p) {
   return {
     ...p,
     a: p.b,
@@ -116,11 +166,6 @@ function swapBeef(p) {
     only_a: p.only_b,
     only_b: p.only_a,
   };
-}
-
-export async function runPurge(urls, { force = false } = {}) {
-  if (isStatic()) throw new NeedsInstall('Running a purge');
-  return api('api/purge', { method: 'POST', body: { urls, force } });
 }
 
 export async function getPurge(key) {
@@ -144,4 +189,52 @@ export async function search(q) {
 
 export async function stats() {
   return isStatic() ? demo('stats.json') : api('api/stats');
+}
+
+// ─── the review deck (spaced repetition) ──────────────────────────────────
+// Same schedule as the server: days until a card comes back, by box.
+const SRS_INTERVALS = [0, 1, 3, 7, 16, 35, 90];
+const LS_REVIEWS = 'yapmap.reviews';
+
+export function scheduleReview(state, grade, now = new Date()) {
+  let box = state.box || 0;
+  let lapses = state.lapses || 0;
+  if (grade === 'again') { box = 0; lapses += 1; } else box = Math.min(SRS_INTERVALS.length - 1, box + (grade === 'easy' ? 2 : 1));
+  const days = SRS_INTERVALS[box];
+  let due = now;
+  if (days) { due = new Date(now); due.setDate(due.getDate() + days); due.setHours(0, 0, 0, 0); }
+  return { box, lapses, reps: (state.reps || 0) + 1, last: Math.floor(now / 1000), due: Math.floor(due / 1000) };
+}
+
+export async function deck() {
+  if (!isStatic()) return api('api/deck');
+  const index = await demo('index.json');
+  const reviews = lsGet(LS_REVIEWS, {});
+  const now = Math.floor(Date.now() / 1000);
+  const cards = [];
+  for (const item of index.items || []) {
+    if (item.tool !== 'flashcards') continue;
+    const canvas = await demo(`canvases/${item.video_id}.json`).catch(() => null);
+    const art = canvas && canvas.artifact;
+    if (!art || art.type !== 'flashcards') continue;
+    art.cards.forEach((c) => {
+      const id = `${item.video_id}:${c.id}`;
+      const st = reviews[id] || {};
+      cards.push({ id, video_id: item.video_id, headline: canvas.headline, q: c.q, a: c.a, t: c.t, box: st.box || 0, reps: st.reps || 0, due: st.due || null });
+    });
+  }
+  return {
+    cards,
+    due: cards.filter((c) => c.reps && c.due <= now).length,
+    new: cards.filter((c) => !c.reps).length,
+    total: cards.length,
+  };
+}
+
+export async function review(id, grade) {
+  if (!isStatic()) return api('api/reviews', { method: 'POST', body: { id, grade } });
+  const reviews = lsGet(LS_REVIEWS, {});
+  reviews[id] = scheduleReview(reviews[id] || {}, grade);
+  lsSet(LS_REVIEWS, reviews);
+  return { id, ...reviews[id] };
 }

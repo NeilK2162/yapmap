@@ -46,6 +46,7 @@ export async function render(root, [month], _query, ctx) {
         if (e.type === 'storycard') m.storycards += 1;
         if (e.type === 'call') { m.calls += 1; if (e.grade === 'nailed') m.nailed += 1; }
         if (e.type === 'cut') m.cuts += 1;
+        if (e.type === 'review') m.reviews = (m.reviews || 0) + 1;
       });
     });
   }
@@ -66,6 +67,8 @@ export async function render(root, [month], _query, ctx) {
     { value: `${current.nailed}/${current.calls}`, label: 'calls nailed' },
     { value: current.storycards, label: current.storycards === 1 ? 'story card' : 'story cards' },
   ];
+  if (current.reviews) tiles.push({ value: current.reviews, label: current.reviews === 1 ? 'card reviewed' : 'cards reviewed' });
+  if (current.asks) tiles.push({ value: current.asks, label: current.asks === 1 ? 'question asked' : 'questions asked' });
   if (current.beefs) tiles.push({ value: current.beefs, label: current.beefs === 1 ? 'beef settled' : 'beefs settled' });
   if (current.purges) tiles.push({ value: current.purges, label: current.purges === 1 ? 'pile purged' : 'piles purged' });
 
@@ -81,14 +84,14 @@ export async function render(root, [month], _query, ctx) {
       h('small', null, 'the line that hit hardest'),
       h('div', null, `“${quote.text}”`),
       typeof quote.t === 'number'
-        ? h('button', { class: 'mini', style: { marginTop: '12px' }, onclick: () => jumpTo(quote.video_id, quote.t, { title: quote.headline }) }, `▶ ${fmt(quote.t)} · ${quote.headline}`)
+        ? h('button', { class: 'mini', type: 'button', style: { marginTop: '12px' }, onclick: () => jumpTo(quote.video_id, quote.t, { title: quote.headline }) }, `▶ ${fmt(quote.t)} · ${quote.headline}`)
         : null,
     ) : null,
     current.longest ? h('div', { class: 'w-foot' }, `longest thing you mapped: ${current.longest.headline} (${fmtDur(current.longest.duration)})`) : null,
   );
 
   const share = h('button', {
-    class: 'cta accent',
+    class: 'cta accent', type: 'button',
     onclick: async () => {
       toast('drawing your wrapped…');
       try {
@@ -104,5 +107,5 @@ export async function render(root, [month], _query, ctx) {
     },
   }, 'download as a story ↓');
 
-  body.replaceChildren(chips, card, h('div', { class: 'w-actions' }, share, h('a', { class: 'ghost', href: '#/grass' }, 'check your streak →')));
+  body.replaceChildren(chips, card, h('div', { class: 'row w-actions' }, share, h('a', { class: 'ghost', href: '#/grass' }, 'check your streak →'), h('a', { class: 'ghost', href: '#/review' }, 'review your cards →')));
 }

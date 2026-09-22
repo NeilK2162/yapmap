@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>yapmap — turn the yap into a map</title>
-<meta name="description" content="Paste a YouTube link, get a canvas: an interactive mindmap, a tool built for that kind of video, sticky notes, a summary in any voice, and timestamped receipts you can watch as a no-yap cut." />
+<meta name="description" content="Paste a YouTube link, get a canvas: a mindmap where every idea is timestamped and explained, a tool built for that kind of video, answers to anything you ask it, and receipts you can watch as a no-yap cut." />
 <meta name="theme-color" content="#0d0d18" />
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%23e2ff57'/%3E%3Cpath d='M18 18l14 16 14-16M32 34v14' stroke='%230d0d18' stroke-width='7' stroke-linecap='round' stroke-linejoin='round' fill='none'/%3E%3C/svg%3E" />
 <script>
@@ -19,37 +19,41 @@
 </script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<!-- Noto Sans Devanagari only downloads when a page actually has Hindi on it. -->
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&family=Noto+Sans+Devanagari:wght@400;600;700&display=swap" rel="stylesheet">
 <link rel="preload" href="static/fonts/LuckiestGuy-Regular.ttf" as="font" type="font/ttf" crossorigin>
 <link rel="stylesheet" href="static/css/app.css" />
 </head>
 <body>
 
+<a class="skip-link" href="#view">skip to the content</a>
 <div class="blobs" aria-hidden="true"><div class="blob a"></div><div class="blob b"></div><div class="blob c"></div></div>
 <div class="grain" aria-hidden="true"></div>
 
 <div class="wrap">
   <header class="nav">
-    <a class="mark" href="#/" aria-label="yapmap — home"><span class="y">yapmap</span><span class="blink"></span></a>
+    <a class="mark" href="#/" aria-label="yapmap — home"><span class="y">yapmap</span><span class="blink" aria-hidden="true"></span></a>
     <span class="tag">turn the yap into a map</span>
     <nav class="tabs" id="tabs" aria-label="Tools">
       <a href="#/" data-tab="map">map it</a>
       <a href="#/beef" data-tab="beef">beef</a>
       <a href="#/purge" data-tab="purge">purge</a>
       <a href="#/library" data-tab="library">library</a>
+      <a href="#/review" data-tab="review">review <span class="badge" id="due-badge" hidden></span></a>
       <a href="#/grass" data-tab="grass">grass</a>
       <a href="#/wrapped" data-tab="wrapped">wrapped</a>
       <a href="#/extras" data-tab="extras">extras</a>
     </nav>
     <div class="nav-right">
+      <a class="cooking" id="cooking" href="#/" hidden></a>
       <a class="skipped" id="skipped" href="#/wrapped" hidden></a>
       <button class="theme-btn" id="theme-btn" type="button" aria-label="Switch theme">☀</button>
       <span class="powered">powered by <b>Claude</b></span>
     </div>
   </header>
 
-  <div class="banner demo-banner" id="demo-banner" hidden></div>
-  <div class="banner" id="checkin" role="status" hidden></div>
+  <aside id="demo-banner" aria-label="About this demo" hidden></aside>
+  <aside id="checkin" aria-label="Check-in" hidden></aside>
 
   <main id="view" tabindex="-1"></main>
 
@@ -59,10 +63,12 @@
   </footer>
 </div>
 
-<div class="dock" id="dock" hidden>
+<div class="dock" id="dock" role="region" aria-label="Video player" hidden>
   <div class="dock-head">
+    <button class="icon-btn" id="dock-play" type="button" aria-label="Pause">⏸</button>
     <span class="t" id="dock-title">the tape</span>
-    <button class="icon-btn" id="dock-min" type="button" aria-label="Minimise player">▁</button>
+    <button class="icon-btn" id="dock-big" type="button" aria-label="Bigger player">⤢</button>
+    <button class="icon-btn" id="dock-min" type="button" aria-label="Hide the video, keep the sound">▁</button>
     <button class="icon-btn" id="dock-close" type="button" aria-label="Close player">✕</button>
   </div>
   <div class="dock-stage">
@@ -76,7 +82,6 @@
 
 <script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/markmap-view@0.18.12/dist/browser/index.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/markmap-lib@0.18.12/dist/browser/index.iife.js"></script>
 <script type="module" src="static/js/main.js"></script>
 </body>
 </html>

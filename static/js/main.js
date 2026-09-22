@@ -1,16 +1,19 @@
 // Boot, routing, and the bits of chrome every page shares: the tool tabs,
-// the "yap skipped" counter, the demo banner, and the touch-grass check-in.
+// the "cooking" pill for work in progress, the review badge, the "yap
+// skipped" counter, the demo banner, and the touch-grass check-in.
 
-import { h, fmtDur, timeAgo, toast, setAccent, parseVideoId } from './util.js';
-import { detectMode, isStatic, stats } from './api.js';
+import { h, fmtDur, timeAgo, toast, setAccent, parseVideoId, lsGet, lsSet } from './util.js';
+import { detectMode, isStatic, stats, deck } from './api.js';
 import { listCommitments, updateCommitment } from './store.js';
 import { initDock } from './player.js';
 import { initTheme } from './theme.js';
+import { resumeJobs, runningJobs, onJobsChange, jobHref } from './jobs.js';
 import * as home from './views/home.js';
 import * as canvas from './views/canvas.js';
 import * as beef from './views/beef.js';
 import * as purge from './views/purge.js';
 import * as library from './views/library.js';
+import * as review from './views/review.js';
 import * as grass from './views/grass.js';
 import * as wrapped from './views/wrapped.js';
 import * as extras from './views/extras.js';
@@ -23,6 +26,7 @@ const ROUTES = [
   { re: /^\/beef(?:\/([0-9A-Za-z_-]{11})\/([0-9A-Za-z_-]{11}))?$/, tab: 'beef', accent: 'pink', view: beef },
   { re: /^\/purge(?:\/([0-9a-f]{12}))?$/, tab: 'purge', accent: 'cyan', view: purge },
   { re: /^\/library$/, tab: 'library', accent: 'violet', view: library },
+  { re: /^\/review$/, tab: 'review', accent: 'lime', view: review },
   { re: /^\/grass$/, tab: 'grass', accent: 'green', view: grass },
   { re: /^\/wrapped(?:\/(\d{4}-\d{2}))?$/, tab: 'wrapped', accent: 'orange', view: wrapped },
   { re: /^\/extras$/, tab: 'extras', accent: 'lime', view: extras },
@@ -30,6 +34,7 @@ const ROUTES = [
 
 let routeId = 0;
 let cleanups = [];
+let currentPath = '/';
 
 function parseHash() {
   const raw = location.hash.replace(/^#/, '') || '/';
@@ -41,6 +46,7 @@ async function route() {
   const { path, query } = parseHash();
   cleanups.splice(0).forEach((fn) => { try { fn(); } catch (e) { /* a view's cleanup failing shouldn't block the next */ } });
   const id = ++routeId;
+  currentPath = path;
 
   const found = ROUTES.map((r) => ({ r, m: path.match(r.re) })).find((x) => x.m);
   if (!found) { location.replace('#/'); return; }
@@ -52,9 +58,11 @@ async function route() {
     if (on) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
   });
   setAccent(r.accent);
+  showDemoBanner(r.view === home);
 
-  const root = h('div');
-  document.getElementById('view').replaceChildren(root);
+  const root = h('div', { class: 'view' });
+  const main = document.getElementById('view');
+  main.replaceChildren(root);
   window.scrollTo(0, 0);
 
   // Views get a context so async work that finishes after the user has moved
@@ -73,13 +81,57 @@ async function route() {
     console.error(err);
     if (ctx.alive()) {
       root.replaceChildren(h('div', { class: 'error' }, h('div', { class: 'card' },
-        h('h3', null, 'something broke on our side.'),
+        h('h1', { class: 'e-title' }, 'something broke on our side.'),
         h('p', null, (err && err.message) || String(err)),
         h('a', { class: 'ghost', href: '#/' }, 'go home'),
       )));
     }
   }
+  // Keyboard and screen-reader users land at the new page, not the old focus.
+  if (ctx.alive() && document.activeElement === document.body) main.focus({ preventScroll: true });
   refreshCheckin();
+}
+
+// ─── the "cooking" pill: work in progress, anywhere in the app ────────────
+function paintCooking() {
+  const pill = document.getElementById('cooking');
+  const jobs = runningJobs();
+  if (!jobs.length) { pill.hidden = true; return; }
+  const first = jobs[0];
+  pill.hidden = false;
+  pill.href = jobHref(first);
+  pill.title = jobs.map((j) => j.title || j.kind).join('\n');
+  pill.replaceChildren(
+    h('span', { class: 'pulse-dot', 'aria-hidden': 'true' }),
+    jobs.length > 1 ? `${jobs.length} cooking` : `cooking: ${first.title || (first.kind === 'canvas' ? 'a canvas' : first.kind)}`,
+  );
+}
+
+document.addEventListener('yapmap:jobend', (e) => {
+  const rec = e.detail;
+  if (rec.kind === 'ask') return;
+  const href = jobHref(rec);
+  const here = currentPath === href.replace(/^#/, '').split('?')[0];
+  if (rec.status === 'done') {
+    document.dispatchEvent(new CustomEvent('yapmap:changed'));
+    if (!here) {
+      const what = rec.kind === 'canvas' ? (rec.result && rec.result.headline) || 'your canvas' : rec.kind === 'beef' ? 'the beef' : 'the purge';
+      toast(`✓ ready: ${what}`, { href, label: 'open it →' });
+    }
+  } else if (rec.status === 'error' && !here) {
+    toast(`that ${rec.kind} didn’t finish — open it to see why`, { href, label: 'see why →' });
+  }
+});
+
+// ─── the review badge: cards due ─────────────────────────────────────────
+async function refreshDue() {
+  const badge = document.getElementById('due-badge');
+  try {
+    const d = await deck();
+    badge.hidden = !d.due;
+    badge.textContent = String(d.due);
+    badge.setAttribute('aria-label', `${d.due} cards due`);
+  } catch (e) { badge.hidden = true; }
 }
 
 // ─── the "yap skipped" counter ────────────────────────────────────────────
@@ -123,18 +175,18 @@ async function refreshCheckin() {
     } catch (e) { toast(e.message); }
   };
   box.hidden = false;
-  box.replaceChildren(
+  box.replaceChildren(h('div', { class: 'banner' },
     h('span', { class: 'b-emoji', 'aria-hidden': 'true' }, '🌱'),
     h('div', { class: 'b-text' },
       `${when.charAt(0).toUpperCase() + when.slice(1)} you said you’d `, h('b', null, due.action), '. Did you?',
       due.headline ? h('small', null, 'from: ' + due.headline) : null,
     ),
     h('div', { class: 'b-actions' },
-      h('button', { class: 'mini on', onclick: () => resolve({ status: 'done' }, 'kept it. that’s growth fr 🌱') }, 'did it ✓'),
-      h('button', { class: 'mini', onclick: () => resolve({ snooze_days: 2 }, 'we’ll ask again in two days') }, 'not yet'),
-      h('button', { class: 'mini', onclick: () => resolve({ status: 'dropped' }, 'dropped. no shame, just data.') }, 'drop it'),
+      h('button', { class: 'mini on', type: 'button', onclick: () => resolve({ status: 'done' }, 'kept it. that’s growth fr 🌱') }, 'did it ✓'),
+      h('button', { class: 'mini', type: 'button', onclick: () => resolve({ snooze_days: 2 }, 'we’ll ask again in two days') }, 'not yet'),
+      h('button', { class: 'mini', type: 'button', onclick: () => resolve({ status: 'dropped' }, 'dropped. no shame, just data.') }, 'drop it'),
       h('button', {
-        class: 'icon-btn', 'aria-label': 'Hide for now',
+        class: 'icon-btn', type: 'button', 'aria-label': 'Hide for now',
         onclick: () => {
           dismissed.add(due.id);
           try { sessionStorage.setItem('yapmap.dismissed', JSON.stringify([...dismissed])); } catch (e) { /* fine */ }
@@ -142,18 +194,26 @@ async function refreshCheckin() {
         },
       }, '✕'),
     ),
-  );
+  ));
 }
 
-function showDemoBanner() {
+// The demo explains itself once, on the home page, and stays out of the way after.
+function showDemoBanner(onHome) {
   const box = document.getElementById('demo-banner');
+  if (!isStatic() || !onHome || lsGet('yapmap.demoBanner', 'show') === 'hidden') { box.hidden = true; return; }
   box.hidden = false;
-  box.replaceChildren(
+  box.replaceChildren(h('div', { class: 'banner demo-banner' },
     h('span', { class: 'b-emoji', 'aria-hidden': 'true' }, '👀'),
     h('div', { class: 'b-text' }, 'You’re in the live demo. Every canvas here is real output — open one and poke everything.',
-      h('small', null, 'Mapping new videos runs on your own machine with your Claude subscription. No API key.')),
-    h('div', { class: 'b-actions' }, h('a', { class: 'mini on', href: '#/extras' }, 'how to install →')),
-  );
+      h('small', null, 'Making new ones runs on your own computer with your Claude subscription. No API key.')),
+    h('div', { class: 'b-actions' },
+      h('a', { class: 'mini on', href: '#/extras' }, 'how to install →'),
+      h('button', {
+        class: 'icon-btn', type: 'button', 'aria-label': 'Dismiss',
+        onclick: () => { lsSet('yapmap.demoBanner', 'hidden'); box.hidden = true; },
+      }, '✕'),
+    ),
+  ));
 }
 
 // Sticky elements sit under the nav, whose height changes when the tab row wraps.
@@ -169,7 +229,11 @@ async function boot() {
   initTheme();
   initDock();
   await detectMode();
-  if (isStatic()) showDemoBanner();
+  document.documentElement.classList.toggle('is-demo', isStatic());
+  // Reattach to anything still cooking before the first page asks.
+  await resumeJobs();
+  onJobsChange(paintCooking);
+  paintCooking();
 
   // The one-click bookmark lands here as ?v=<youtube url>.
   const v = new URLSearchParams(location.search).get('v');
@@ -180,9 +244,11 @@ async function boot() {
   }
 
   window.addEventListener('hashchange', route);
-  document.addEventListener('yapmap:changed', () => { refreshSkipped(); refreshCheckin(); });
+  document.addEventListener('yapmap:changed', () => { refreshSkipped(); refreshCheckin(); refreshDue(); });
+  document.addEventListener('yapmap:reviewed', refreshDue);
   route();
   refreshSkipped();
+  refreshDue();
 }
 
 boot();
