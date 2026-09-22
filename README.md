@@ -24,6 +24,10 @@ Every timestamp is clickable: it seeks an embedded player, and it survives into 
 
 ### See it
 
+**Paste a link** — any YouTube video with captions. That's the whole input.
+
+![The yapmap landing page: a large gradient "make it make sense." headline, a one-line pitch, and a link box beside the "make it make sense" button](docs/screenshots/landing.webp)
+
 **The map** — the whole video as a tree. Fold what you already know, drag, zoom, go fullscreen.
 
 ![Mindmap of the interview: a root node branching into sections such as the rare skillset, building and proving the system, selling the engagement, and a 30-day plan broken into weekly steps](docs/screenshots/map.webp)
