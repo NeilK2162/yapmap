@@ -1,5 +1,11 @@
-# generated canvases (cached Claude output, keyed by video id)
+# generated canvases, beefs, purges and voices (cached Claude output)
 .cache/
+
+# your commitments and activity -- personal, never committed
+.yapmap/
+
+# the Pages site is assembled in CI from templates/, static/ and demo/
+_site/
 
 # python
 __pycache__/

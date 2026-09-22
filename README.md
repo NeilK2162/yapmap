@@ -1,26 +1,66 @@
 # yapmap
 
-**Turn the yap into a map.** Paste a YouTube link, get a canvas back — an interactive mindmap, a wall of sticky notes, a real summary, and timestamped findings you can tick and download.
+**Turn the yap into a map.** Paste a YouTube link, get a canvas back: an interactive mindmap, a tool built for that kind of video, sticky notes for the good bits, a summary in any voice you like, and a **no-yap cut** — the real video, with everything between the good parts cut out.
 
 Runs on your own machine. Uses your **Claude subscription** through the Claude Code CLI, so there's **no API key and no per-token billing**.
+
+**[Try the live demo →](https://neilk2162.github.io/yapmap/)** Real canvases for five Creative Commons videos, one of each kind. No install, nothing to sign into.
 
 ![The yapmap landing page: a large gradient "make it make sense." headline, a one-line pitch, and a link box beside the "make it make sense" button](docs/screenshots/landing.webp)
 
 ---
 
-## What you get
+## Don't skip the video. Skip the yap.
 
-One link in, five artifacts out:
+Summarisers try to replace the video: read this, so you don't have to watch. yapmap goes the other way. It makes the video itself navigable — before you watch, while you watch, and after — and every single thing it produces is a doorway back to the exact second it came from.
+
+## The canvas
+
+One link in:
 
 | | |
 |---|---|
-| **the map** | A pan/zoom/collapsible mindmap of the whole video. Drag it, fold the parts you already know, go fullscreen. |
-| **the wall** | Sticky notes for the moments worth screenshotting — quotes, warnings, the numbers. Draggable. |
-| **the download** | A proper multi-paragraph summary, not bullet soup. |
-| **touch grass protocol** | 3–5 concrete things to actually go do offline afterwards. |
-| **receipts** | The key findings, each with a timestamp. Tick the ones that matter and export them as Markdown. |
+| **▶ the no-yap cut** | The moments that matter, played back to back in the real YouTube player — *"13 min → 7 min"*. It goes through YouTube's own player, so the creator still gets the view. |
+| **the map** | The whole video as a tree you can pan, zoom, fold and take fullscreen. |
+| **the tool** | Something built for *this kind* of video — flashcards, a cook-along, a buy/skip card, claims to check, or a timeline. See below. |
+| **the wall** | Sticky notes for the lines worth screenshotting. Drag them around, or turn one into a 1080×1920 story card in a tap. |
+| **the shelf** | Every book, tool, person and paper the video name-drops, with the second they said it and a link to look it up. |
+| **the download** | A real summary — straight, or re-voiced as a group chat, a sports commentator, full brainrot, or like-I'm-five. |
+| **touch grass protocol** | Concrete things to go and do. Pin one, and yapmap asks you days later whether you actually did it. |
+| **receipts** | The key findings. Tick the ones that matter and export them as Markdown. |
 
-Every timestamp is clickable: it seeks an embedded player, and it survives into the exported Markdown as a deep link back to that exact second.
+While a canvas generates you can **call it**: guess the big idea first, then see how close you got. Guessing before you learn — even guessing wrong — improves what you remember; learning research calls it the pretesting effect.
+
+Every timestamp is clickable. It plays that moment in a mini player, and it survives into every export as a deep link.
+
+### A tool for every kind of video
+
+Claude first works out what kind of video it is, then builds the tool to match — and names every section itself.
+
+| Mode | Fits | The tool |
+|---|---|---|
+| `study` | lectures, tutorials, explainers | **cram deck** — flashcards whose answer side plays the creator explaining it. Exports to Anki. |
+| `howto` | recipes, builds, walkthroughs | **cook-along** — a pantry checklist that becomes your shopping list, step timers, and a hands-free mode. The no-yap cut plays each step being done. |
+| `verdict` | reviews, comparisons, buying guides | **buy/skip card** — the reviewer's call, who it's for, who should skip, and the deal-breaker. |
+| `yap` | podcasts, interviews, commentary | **claims to check** — every checkable claim, who made it, how to verify it, and a place to mark what holds up. |
+| `story` | documentaries, video essays, news | **timeline** — scrub it to jump, and it follows the video as it plays. |
+
+Real examples: a bread recipe came back as a **Bread Baking Session** with **Baker's Tricks**; a laptop review as a **Featherweight Verdict** with **The Evidence**; a science podcast as an **Ethics Interview** with claims attributed to its guest.
+
+## The toolkit
+
+Everything else lives in the tabs along the top.
+
+| Tab | What it does |
+|---|---|
+| **beef** | Two videos, one ring. Where they genuinely clash — each side's receipt, playable — where they agree, and what only one of them covers. |
+| **purge** | Paste up to 12 links, or a playlist. Get *watch / skim / skip* for each, the best moment, and the hours you'd save. |
+| **library** | Every canvas you've ever made, searchable all at once. Every result is a timestamp that plays the moment. |
+| **grass** | Your commitments and your follow-through streak — a streak for things you *did*, not things you watched. |
+| **wrapped** | Your month: yap skipped, what kind of watcher you were, the line that hit hardest. Downloads as a story. |
+| **extras** | The one-click "map this" bookmark for YouTube, the theme switch, keyboard shortcuts, and where your data lives. |
+
+Light mode and dark mode are both first-class, and follow your device until you pick one.
 
 ### See it
 
@@ -32,7 +72,7 @@ Every timestamp is clickable: it seeks an embedded player, and it survives into 
 
 ![Mindmap of the interview: a root node branching into sections such as the rare skillset, building and proving the system, selling the engagement, and a 30-day plan broken into weekly steps](docs/screenshots/map.webp)
 
-**The wall** — the lines worth screenshotting, each tagged by kind and linked to its timestamp. Every note is draggable.
+**The wall** — the lines worth screenshotting, each tagged by kind and linked to its timestamp.
 
 ![Nine colour-coded sticky notes labelled "they said it", "the number", "heads up", "steal this" and "oh, that's why", each with a play-button timestamp](docs/screenshots/wall.webp)
 
@@ -40,23 +80,9 @@ Every timestamp is clickable: it seeks an embedded player, and it survives into 
 
 ![A two-column prose summary of the interview with a drop cap](docs/screenshots/summary.webp)
 
-**Touch grass protocol and receipts** — what to go and do, then the findings you tick and export as Markdown.
+**Touch grass protocol and receipts** — what to go and do, then the findings you tick and export.
 
 ![A checklist of five real-world next steps, followed by the findings section with select-all, copy and download controls](docs/screenshots/next-moves-and-findings.webp)
-
-### It adapts to the video
-
-There's no single "summarise it" template. Claude first works out what kind of video it is, then builds artifacts to match — and names the sections itself:
-
-| Mode | Fits | "Receipts" become |
-|---|---|---|
-| `study` | lectures, tutorials, explainers | the core concepts, each explained |
-| `yap` | podcasts, interviews, commentary | the actual claims, and who made them |
-| `howto` | recipes, builds, walkthroughs | the steps in order |
-| `verdict` | reviews, comparisons, buying guides | the pros, cons, and the call |
-| `story` | documentaries, video essays, news | the key events in sequence |
-
-The labels change with every video. The career interview in the screenshots came back as a **Career Masterclass** with a **Wall of Wisdom**; a freeCodeCamp system-design lecture came back as a **System Design Bootcamp** with **Whiteboard Scraps**.
 
 ---
 
@@ -96,7 +122,9 @@ python app.py
 
 Open **http://localhost:5000**, paste a link, hit *make it make sense*.
 
-The first canvas takes roughly 40–90 seconds depending on video length. After that the video is cached locally, so reopening it is instant.
+A new canvas takes roughly one to two minutes depending on video length. After that it's cached locally, so reopening it is instant — and so is everything in the library.
+
+**Optional: the one-click button.** Open the *extras* tab and drag *🗺️ map this* to your bookmarks bar. On any YouTube video, click it and the video opens straight in yapmap.
 
 ---
 
@@ -108,11 +136,12 @@ All optional, all environment variables:
 |---|---|---|
 | `CLAUDE_MODEL` | `sonnet` | Swap the model: `opus`, `haiku`, or a full model name |
 | `CLAUDE_BIN` | `claude` | Full path to the CLI if it isn't on `PATH` |
-| `CLAUDE_TIMEOUT_SECONDS` | `420` | Raise it for very long videos |
-| `YAPMAP_CACHE_DIR` | `.cache` | Where generated canvases are stored |
+| `CLAUDE_TIMEOUT_SECONDS` | `600` | Raise it for very long videos, or big beefs |
+| `YAPMAP_CACHE_DIR` | `.cache` | Where canvases, beefs, purges and voices are cached |
+| `YAPMAP_DATA_DIR` | `.yapmap` | Your commitments and Wrapped activity — kept apart, so clearing the cache never wipes your streak |
 | `PORT` | `5000` | Port to serve on |
 
-Want more or less detail in the output? It's all one prompt — `build_canvas_prompt()` in [`app.py`](app.py). Change the rules, delete the `.cache/` folder, regenerate.
+Want more or less detail in the output? It's all one prompt — `build_canvas_prompt()` in [`app.py`](app.py). Change the rules, bump `CANVAS_PROMPT_VERSION`, and regenerate.
 
 ---
 
@@ -151,6 +180,12 @@ Run `claude auth status`. If it shows an API-key setup rather than your subscrip
 **The mindmap area is blank**
 It loads d3 and markmap from a CDN. Check your connection and refresh — the rest of the canvas works without them.
 
+**A timestamp opens YouTube in a new tab instead of playing in the page**
+That creator has switched off embedding, or YouTube's player script was blocked (an ad blocker can do it). yapmap falls back to opening the moment on YouTube.
+
+**The purge says a playlist needs yt-dlp**
+It's in `requirements.txt`, so `pip install -r requirements.txt` again. Or skip it and paste the video links one per line.
+
 ---
 
 ## How it works
@@ -158,15 +193,27 @@ It loads d3 and markmap from a CDN. Check your connection and refresh — the re
 ```
 YouTube link
    └─ youtube-transcript-api  →  timestamped transcript blocks
-        └─ claude -p (stdin)  →  one JSON canvas
-             └─ Flask + markmap  →  the page you interact with
+        └─ claude -p (stdin)  →  one JSON canvas (or beef, purge, voice)
+             └─ Flask  →  a single-page app: static/js/, one ES module per tool
 ```
+
+No build step and no framework. The frontend is plain ES modules in [`static/js/`](static/js/) — one per tool under `views/` — with hash routing, so the exact same files run under Flask and as the static demo.
 
 The transcript is chunked into ~220-character blocks, each tagged with the second it was spoken at. That's what lets Claude cite a moment rather than just paraphrase, and it's what makes every timestamp in the UI land in the right place.
 
 The prompt goes to the CLI over **stdin**, never as a command-line argument — on Windows the `.cmd` shim routes the command line through `cmd.exe`, which truncates it at the first newline and would read quotes, `&` and `%VAR%` in transcript text as shell syntax.
 
-Responses are normalised before they reach the browser: a model that skips a field, or returns a string where a list belongs, degrades into a thinner canvas rather than a broken page.
+Responses are normalised before they reach the browser: a model that skips a field, or returns a string where a list belongs, degrades into a thinner canvas rather than a broken page. Canvases from an older version of the prompt still open — the page says what's missing and offers to regenerate.
+
+### The demo gallery
+
+[The live demo](https://neilk2162.github.io/yapmap/) is this same app with no server. It notices there's no `/api` and reads pre-built results from [`demo/`](demo/) instead; everything works except making new ones. A [GitHub Actions workflow](.github/workflows/pages.yml) publishes it on every push to `main`.
+
+`demo/` is written by [`export_demo.py`](export_demo.py) from an explicit allowlist, so nothing else in your cache can be published by accident. Every video in it is **Creative Commons Attribution (CC BY)** licensed on YouTube, and each demo canvas credits its creator and links to the original. To change what's in it, generate the canvases locally, edit the allowlist, then run:
+
+```bash
+python export_demo.py
+```
 
 ---
 
@@ -174,7 +221,8 @@ Responses are normalised before they reach the browser: a model that skips a fie
 
 - **Captions required.** Manual or auto-generated, any language — non-English videos work, the canvas just comes back in that language's terms.
 - **Very long videos get trimmed.** Transcripts are capped at ~120k characters (a few hours of speech). Past that the canvas covers what fits, and says so on the page.
-- **Subscription usage is a real budget.** Each canvas is one substantial Claude call. That's why results are cached on disk — regenerating is opt-in, via the *regenerate* button.
+- **Subscription usage is a real budget.** Each canvas, beef or purge is one substantial Claude call; a re-voice is a small one. Everything is cached on disk, and regenerating is always opt-in.
+- **Your data stays put.** Canvases live in `.cache/`, commitments and Wrapped activity in `.yapmap/`. Both are gitignored. The only thing that leaves your machine is the transcript going to Claude, through the CLI you're signed into.
 - **This is a local dev server.** Flask's built-in one, with `debug=True`. Fine on your own machine, not meant to be exposed to the internet as-is.
 - **Not affiliated with YouTube or Anthropic.** It reads public transcripts and shells out to a CLI you're already logged into.
 

@@ -1,3 +1,5 @@
 flask>=3.1
 youtube-transcript-api>=1.2
 requests>=2.31
+# Optional: lets the purge read playlist links. Without it, paste video links one per line.
+yt-dlp>=2025.1
