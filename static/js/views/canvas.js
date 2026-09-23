@@ -58,7 +58,8 @@ export async function render(root, [videoId], query, ctx) {
     const slow = setTimeout(() => { if (ctx.alive()) root.replaceChildren(skeletonPage()); }, 250);
     let data;
     try {
-      data = await getCanvas(videoId, { lang });
+      // Your language if this canvas exists in it; otherwise whichever one does.
+      data = await getCanvas(videoId, { lang: lang || prefLang() });
     } catch (err) {
       clearTimeout(slow);
       if (ctx.alive()) root.replaceChildren(errorScreen(err, videoId));
@@ -73,7 +74,10 @@ export async function render(root, [videoId], query, ctx) {
   try {
     rec = await startJob('canvas', { video_id: videoId, lang: lang || prefLang(), force });
   } catch (err) {
-    if (ctx.alive()) root.replaceChildren(errorScreen(err, videoId));
+    if (!ctx.alive()) return;
+    const screen = errorScreen(err, videoId);
+    root.replaceChildren(screen);
+    if (force) offerKept(screen, videoId, ctx);
     return;
   }
   if (!ctx.alive()) return;
@@ -101,6 +105,24 @@ function errorScreen(err, videoId, { retry = true } = {}) {
       usage ? h('a', { class: 'ghost', href: '#/library' }, 'open your library') : null,
     ),
   ));
+}
+
+// A regenerate that fails or gets cancelled leaves the canvas you already had
+// on disk, so point the way back to it rather than stranding you on the error.
+async function offerKept(screen, videoId, ctx) {
+  const kept = await getCanvas(videoId, { lang: prefLang() }).catch(() => null);
+  const row = screen.querySelector('.row');
+  if (!kept || !ctx.alive() || !row) return;
+  row.querySelectorAll('.hot').forEach((a) => a.classList.remove('hot'));
+  row.prepend(h('button', {
+    class: 'ghost hot', type: 'button',
+    onclick: () => {
+      const target = `#/v/${videoId}`;
+      // The hash may already read that (a regenerate drops its ?force=1), and then only an event re-routes.
+      if (location.hash === target) window.dispatchEvent(new HashChangeEvent('hashchange'));
+      else location.hash = target;
+    },
+  }, 'back to the one you had'));
 }
 
 // ─── the page ─────────────────────────────────────────────────────────────
@@ -520,10 +542,10 @@ function canvasPage(root, ctx, videoId, { data = null, rec = null, query }) {
         finalize();
         if (!evt.result.cached) document.dispatchEvent(new CustomEvent('yapmap:changed'));
       } else if (evt.type === 'error' || evt.type === 'cancelled' || evt.type === 'lost') {
-        const err = new Error(evt.type === 'cancelled' ? evt.message : evt.message);
+        const err = new Error(evt.message);
         err.code = evt.code;
         err.resets_at = evt.resets_at;
-        root.replaceChildren(evt.type === 'cancelled'
+        const screen = evt.type === 'cancelled'
           ? h('div', { class: 'error' }, h('div', { class: 'card' },
             h('h1', { class: 'e-title' }, 'cancelled.'),
             h('p', null, 'Nothing was saved, and Claude stopped the moment you hit cancel.'),
@@ -531,7 +553,9 @@ function canvasPage(root, ctx, videoId, { data = null, rec = null, query }) {
               h('a', { class: 'ghost hot', href: `#/v/${videoId}?force=1` }, 'start it again'),
               h('a', { class: 'ghost', href: '#/' }, 'map something else'),
             )))
-          : errorScreen(err, videoId));
+          : errorScreen(err, videoId);
+        root.replaceChildren(screen);
+        offerKept(screen, videoId, ctx);
       }
     });
     ctx.onCleanup(off);

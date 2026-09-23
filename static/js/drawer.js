@@ -9,6 +9,17 @@ import { jumpTo, onTime } from './player.js';
 
 let panel = null;
 
+const keyWords = (s) => new Set(normalizeText(s).split(/[^\p{L}\p{N}]+/u).filter((w) => w.length > 3));
+/** Two questions are the same if most of the first one's key words are in the second. */
+function sameQuestion(a, b) {
+  if (a === b) return true;
+  const A = keyWords(a), B = keyWords(b);
+  if (!A.size) return false;
+  let shared = 0;
+  A.forEach((w) => { if (B.has(w)) shared += 1; });
+  return shared / A.size >= 0.6;
+}
+
 export function openDrawer({ canvas, tab = 'ask', question = null }) {
   if (!panel || panel.videoId !== canvas.video_id) {
     if (panel) panel.destroy();
@@ -76,7 +87,9 @@ function buildPanel(canvas) {
   }
 
   // ─── ask ────────────────────────────────────────────────────────────────
-  const thread = h('div', { class: 'thread', 'aria-live': 'polite' });
+  const thread = h('div', { class: 'thread' });
+  // Streamed answers change many times a second; screen readers hear the finished one, once.
+  const announce = h('div', { class: 'sr-only', 'aria-live': 'polite' });
   const suggestions = h('div', { class: 'suggest' });
   const input = h('textarea', {
     class: 'field', rows: '2', maxlength: '600', 'aria-label': 'Your question',
@@ -99,7 +112,7 @@ function buildPanel(canvas) {
   input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); form.requestSubmit(); } });
   askPane.append(
     h('p', { class: 'dr-intro' }, 'Ask it anything. Claude answers from the transcript and cites every moment — tap one to hear it.'),
-    thread, suggestions, form,
+    thread, suggestions, form, announce,
   );
 
   let history = null;
@@ -134,7 +147,8 @@ function buildPanel(canvas) {
     const items = history || [];
     thread.replaceChildren(...items.map(qa), live ? live.el : null);
     clearBtn.hidden = !items.length || isStatic();
-    const qs = (canvas.questions || []).filter((q) => !items.some((it) => it.q === q)).slice(0, 5);
+    // Skip suggestions you've effectively asked already; once a chat is going, two is plenty.
+    const qs = (canvas.questions || []).filter((q) => !items.some((it) => sameQuestion(q, it.q))).slice(0, items.length ? 2 : 5);
     suggestions.replaceChildren(
       qs.length ? h('small', null, items.length ? 'more to ask' : 'try one') : null,
       ...qs.map((q) => h('button', { type: 'button', class: 'chip', onclick: () => ask(q) }, q)),
@@ -176,6 +190,7 @@ function buildPanel(canvas) {
           toast(evt.message);
         } else if (evt.type === 'done') {
           history = [...(history || []), evt.result];
+          announce.textContent = 'Answer: ' + String(evt.result.a || '').replace(/\[(\d{1,2}:\d{2}(?::\d{2})?)\]/g, '(at $1)');
           finish();
           off();
           renderThread();

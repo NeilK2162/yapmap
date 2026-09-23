@@ -193,8 +193,9 @@ function buildResult(beef, ctx) {
   const map = createMindmap(card, {
     level: 3,
     title: `The beef: ${beef.topic || 'the matchup'}`,
-    onSelect: (node) => {
-      if (!node || typeof node.t !== 'number' || !node.side) return;
+    // A click plays that side's moment; arrowing through the map only moves.
+    onSelect: (node, via) => {
+      if (via !== 'click' || !node || typeof node.t !== 'number' || !node.side) return;
       const side = node.side === 'a' ? a : b;
       jumpTo(side.video_id, node.t, { title: node.label });
     },

@@ -54,9 +54,19 @@ from youtube_transcript_api import (
     VideoUnavailable,
     YouTubeTranscriptApi,
 )
+from youtube_transcript_api import _errors as transcript_errors
 from youtube_transcript_api._errors import CouldNotRetrieveTranscript
 
+# Newer failure types, looked up by name so an older library still imports.
+_transcript_error = lambda *names: tuple(c for c in (getattr(transcript_errors, n, None) for n in names) if c)  # noqa: E731
+YOUTUBE_BLOCKED = _transcript_error("RequestBlocked", "IpBlocked")
+AGE_RESTRICTED = _transcript_error("AgeRestricted")
+UNPLAYABLE = _transcript_error("VideoUnplayable", "PoTokenRequired")
+
 app = Flask(__name__)
+# Always revalidate static files: after an update, a browser must never run
+# half the old modules and half the new ones.
+app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
 
 ytt_api = YouTubeTranscriptApi()
 
@@ -408,6 +418,17 @@ def fetch_transcript(video_id: str) -> tuple[list[tuple[float, str]], str, str]:
         raise TranscriptProblem("No transcript exists for this video.") from exc
     except VideoUnavailable as exc:
         raise TranscriptProblem("That video is unavailable -- private, deleted, or region-locked.") from exc
+    except YOUTUBE_BLOCKED as exc:
+        raise TranscriptProblem(
+            "YouTube is blocking transcript requests from your connection for now. It happens after a lot of "
+            "requests in a short time, or on a VPN or cloud network. Give it a while (often 15 minutes to an "
+            "hour) and try again -- everything you've already mapped still works.",
+            429,
+        ) from exc
+    except AGE_RESTRICTED as exc:
+        raise TranscriptProblem("This video is age-restricted, and YouTube won't share its transcript without a signed-in account.") from exc
+    except UNPLAYABLE as exc:
+        raise TranscriptProblem("YouTube won't play this video here -- it may be members-only, a premiere, or blocked where you are.") from exc
     except CouldNotRetrieveTranscript as exc:
         raise TranscriptProblem(f"Couldn't fetch the transcript: {str(exc)[:400]}", 502) from exc
     except Exception as exc:  # noqa: BLE001 -- surface anything unexpected with context
@@ -1561,9 +1582,13 @@ def canvas_cache_path(video_id: str, lang: str = DEFAULT_LANG) -> Path:
     return CACHE_DIR / f"{video_id}.{CANVAS_DIGEST}{lang_suffix(lang)}.json"
 
 
-def canvas_files_by_video() -> dict[str, Path]:
-    """The newest cached canvas for every video, whichever schema or language made it."""
+def canvas_files_by_video(prefer_lang: str | None = None) -> dict[str, Path]:
+    """
+    One canvas file per video: the current one in your language when it
+    exists, otherwise the newest, whichever schema or language made it.
+    """
     newest: dict[str, Path] = {}
+    preferred: dict[str, Path] = {}
     if not CACHE_DIR.exists():
         return newest
     for path in CACHE_DIR.glob("*.json"):
@@ -1572,7 +1597,9 @@ def canvas_files_by_video() -> dict[str, Path]:
             continue
         if video_id not in newest or path.stat().st_mtime > newest[video_id].stat().st_mtime:
             newest[video_id] = path
-    return newest
+        if prefer_lang and path.name == canvas_cache_path(video_id, prefer_lang).name:
+            preferred[video_id] = path
+    return {video_id: preferred.get(video_id, path) for video_id, path in newest.items()}
 
 
 def current_canvas_files(video_id: str) -> list[Path]:
@@ -1752,14 +1779,14 @@ BEEF_SCHEMA = """{
   "headline": "a punchy framing of the matchup, max 10 words",
   "verdict": "2-3 sentences: who makes the stronger case on what, grounded only in what is said",
   "clash": [
-    {"topic": "3-7 words", "a": "what video A claims, one sentence", "t_a": 500, "b": "what video B claims, one sentence", "t_b": 210, "why": "why the difference matters, one sentence"}
+    {"topic": "3-7 words", "a": "what video A claims, one sentence", "t_a": "8:20", "b": "what video B claims, one sentence", "t_b": "3:30", "why": "why the difference matters, one sentence"}
   ],
-  "agree": [{"point": "something both say, one sentence", "t_a": 120, "t_b": 340}],
-  "only_a": [{"point": "something only video A covers", "t": 900}],
-  "only_b": [{"point": "something only video B covers", "t": 45}]
+  "agree": [{"point": "something both say, one sentence", "t_a": "2:00", "t_b": "5:40"}],
+  "only_a": [{"point": "something only video A covers", "t": "15:00"}],
+  "only_b": [{"point": "something only video B covers", "t": "0:45"}]
 }"""
 
-BEEF_DIGEST = digest(BEEF_SCHEMA, CLAUDE_MODEL or "", "beef-v1")
+BEEF_DIGEST = digest(BEEF_SCHEMA, CLAUDE_MODEL or "", "beef-v2")
 
 
 def build_beef_prompt(a: dict, b: dict, lang: str = DEFAULT_LANG) -> str:
@@ -1792,7 +1819,7 @@ Output JSON matching this shape exactly:
 Rules:
 - "clash" is the heart of it: 2 to 8 points where they genuinely disagree, contradict each other, or give incompatible advice -- specific, each side in its own terms. If they barely disagree, say so in "verdict" and keep "clash" short. Never invent a fight.
 - "agree": 2 to 8. "only_a" and "only_b": 2 to 6 each.
-- "t_a" is a timestamp in video A and "t_b" one in video B -- integer SECONDS from each video's own [timestamp]. [12:30] is 750.
+- Every "t_a" is a timestamp copied from transcript A and every "t_b" one copied from transcript B -- each from the start of the line the point comes from, exactly as written there without the brackets: "12:30", or "1:02:03" past the hour. In "only_a" and "only_b", "t" comes from that video's own transcript. Copy them character for character; never convert them to seconds.
 - "related" is false only if the two videos are not about the same subject at all; then say so in "verdict" and keep the lists short.
 - "verdict" must be fair and grounded in what is actually said, not in your own opinion of the topic.
 - LANGUAGE: {language_line(lang)} Keep every JSON key exactly as specified, in English.
@@ -1918,12 +1945,12 @@ def beef_work(job: Job, a_id: str, b_id: str, lang: str, force: bool) -> dict:
 
 PURGE_SCHEMA = """{
   "items": [
-    {"n": 1, "verdict": "watch | skim | skip", "why": "one specific sentence -- name what is actually in it", "best_t": 754, "best_label": "what is at that moment, 3-8 words"}
+    {"n": 1, "verdict": "watch | skim | skip", "why": "one specific sentence -- name what is actually in it", "best_t": "12:34", "best_label": "what is at that moment, 3-8 words"}
   ],
   "summary_line": "one punchy line about the pile as a whole"
 }"""
 
-PURGE_DIGEST = digest(PURGE_SCHEMA, CLAUDE_MODEL or "", "purge-v1")
+PURGE_DIGEST = digest(PURGE_SCHEMA, CLAUDE_MODEL or "", "purge-v2")
 
 
 def build_purge_prompt(blocks: list[str], lang: str = DEFAULT_LANG) -> str:
@@ -1946,7 +1973,7 @@ Output JSON matching this shape exactly:
 
 Rules:
 - Exactly one item per video, using its [n].
-- "best_t" is the single best moment, as integer SECONDS from that video's sample timestamps ([12:30] is 750), or null for a skip.
+- "best_t" is the single best moment: the timestamp at the start of that line in the video's sample, copied exactly as written there without the brackets ("12:34", or "1:02:03" past the hour) and never converted to seconds -- or null for a skip.
 - Don't be generous. A pile where everything is "watch" helps nobody.
 - Judge only from what the samples actually contain.
 - LANGUAGE: {language_line(lang)} Keep every JSON key, and the "verdict" values, exactly as specified, in English.
@@ -2444,9 +2471,9 @@ def library_item(video_id: str, canvas: dict, path: Path) -> dict:
     }
 
 
-def all_canvases() -> list[tuple[str, dict, Path]]:
+def all_canvases(prefer_lang: str | None = None) -> list[tuple[str, dict, Path]]:
     out = []
-    for video_id, path in canvas_files_by_video().items():
+    for video_id, path in canvas_files_by_video(prefer_lang).items():
         canvas = read_json(path)
         if isinstance(canvas, dict):
             out.append((video_id, canvas, path))
@@ -2614,6 +2641,12 @@ def cached_times(folder: Path) -> list[str]:
 
 
 # ------------------------------------------------------------------ routes: pages
+
+def preferred_lang() -> str | None:
+    """The ?lang= a listing asked for, if it named a real language."""
+    lang = request.args.get("lang")
+    return clean_lang(lang) if lang else None
+
 
 @app.route("/")
 def index():
@@ -2851,19 +2884,19 @@ def api_purge_get(key):
 
 @app.get("/api/library")
 def api_library():
-    return {"items": [library_item(vid, canvas, path) for vid, canvas, path in all_canvases()]}
+    return {"items": [library_item(vid, canvas, path) for vid, canvas, path in all_canvases(preferred_lang())]}
 
 
 @app.get("/api/search")
 def api_search():
     query = request.args.get("q") or ""
-    rows = [(vid, canvas) for vid, canvas, _ in all_canvases()]
+    rows = [(vid, canvas) for vid, canvas, _ in all_canvases(preferred_lang())]
     return {"hits": search_records(rows, query), "terms": [t for t in query.lower().split() if t]}
 
 
 @app.get("/api/stats")
 def api_stats():
-    canvases = [(vid, canvas, canvas.get("created_at") or mtime_iso(path)) for vid, canvas, path in all_canvases()]
+    canvases = [(vid, canvas, canvas.get("created_at") or mtime_iso(path)) for vid, canvas, path in all_canvases(preferred_lang())]
     return compute_stats(
         canvases,
         load_list(COMMITMENTS_FILE),
@@ -2877,7 +2910,7 @@ def api_stats():
 
 @app.get("/api/deck")
 def api_deck():
-    rows = [(vid, canvas) for vid, canvas, _ in all_canvases()]
+    rows = [(vid, canvas) for vid, canvas, _ in all_canvases(preferred_lang())]
     return build_deck(rows, load_reviews(), int(time.time()))
 
 

@@ -85,25 +85,37 @@ Canvases, answers, beefs and purges can be written in **English, Hinglish, ह�
 
 ### See it
 
-**The canvas** — the video comes back retitled, with a one-line TL;DR, its channel and runtime, and a mode picked for it.
+**The canvas.** The video comes back retitled, with a one-line TL;DR, its channel and runtime, the no-yap cut, and the language it's written in.
 
-![A yapmap canvas for a 51-minute interview: a rewritten headline, a one-line TL;DR, channel and runtime pills, and the start of the mindmap](docs/screenshots/canvas.webp)
+![A yapmap canvas for a 13-minute explainer: the rewritten headline "How Wi-Fi, IPs and Browsers Build the Web", a one-line TL;DR, pills for the channel, runtime, idea count and findings, and buttons for the no-yap cut, ask it, transcript, language and more](docs/screenshots/canvas.webp)
 
-**The map** — the whole video as a tree of ideas.
+**The map.** Every idea with its timestamp. Tap one, and the inspector shows what the video says about it, the lines where it's said, and a button that plays that moment.
 
-![Mindmap of the interview: a root node branching into sections such as the rare skillset, building and proving the system, selling the engagement, and a 30-day plan broken into weekly steps](docs/screenshots/map.webp)
+![The mindmap of a bread recipe in fullscreen: a root node with nine branches, a timestamp on every idea, "Incorporating Butter 2:09" selected, and an inspector with a play button, a one-line note and the transcript lines where it's said](docs/screenshots/map.webp)
 
-**The wall** — the lines worth screenshotting, each tagged by kind and linked to its timestamp.
+**Ask it.** Answers come from the transcript, and every claim cites its moment. Tap a citation to hear it.
 
-![Nine colour-coded sticky notes labelled "they said it", "the number", "heads up", "steal this" and "oh, that's why", each with a play-button timestamp](docs/screenshots/wall.webp)
+![The ask panel beside a recipe canvas: a question about why the butter goes in after kneading, an answer with three playable timestamp citations, and two suggested questions](docs/screenshots/ask.webp)
 
-**The download** — a real summary, in paragraphs.
+**The tool.** A laptop review gets a buy/skip card: the reviewer's call, who it's for and who should skip it, the good and the bad with timestamps, and the deal-breaker.
 
-![A two-column prose summary of the interview with a drop cap](docs/screenshots/summary.webp)
+![The buy/skip card for a laptop review: a large green BUY, who it's for and who should skip it, the good and the bad each with a timestamp, and the deal-breaker](docs/screenshots/tool.webp)
 
-**Touch grass protocol and receipts** — what to go and do, then the findings you tick and export.
+**The wall.** The lines worth screenshotting, each tagged by kind and linked to its timestamp.
 
-![A checklist of five real-world next steps, followed by the findings section with select-all, copy and download controls](docs/screenshots/next-moves-and-findings.webp)
+![Eight colour-coded sticky notes from a documentary about Guatemala, each labelled by kind, with a play-button timestamp and a story-card button](docs/screenshots/wall.webp)
+
+**The download.** A real summary. Read it straight, or re-voice it as a group chat, a sports commentator, brainrot, or like-I'm-five.
+
+![A two-column prose summary with a drop cap, under voice options: straight, group chat, commentator, brainrot and like I'm five](docs/screenshots/summary.webp)
+
+**Touch grass and the findings.** What to go and do, then the key findings to tick and export.
+
+![Five concrete next moves, each with an "I'll do this" button, followed by the findings list with select all, clear, copy and download controls](docs/screenshots/next-moves-and-findings.webp)
+
+**Review**, here in light mode. Each card comes back right before you'd forget it, and *hear them explain it* plays the moment its answer came from.
+
+![The review page in light mode: a flipped flashcard answer, a "new card" label, a "hear them explain it · 2:15" button, and again and got it controls](docs/screenshots/review.webp)
 
 ---
 
@@ -196,6 +208,12 @@ Python couldn't launch the CLI. On Windows `npm install -g` creates a `claude.cm
 
 **"You've hit your Claude usage limit for now"**
 Your subscription's usage window is used up. Everything you've already mapped still opens, searches and plays — new canvases and answers work again once it resets. A canvas warns you when you're close.
+
+**"YouTube is blocking transcript requests from your connection"**
+YouTube rate-limits transcript downloads. After a burst of them (a big purge, say), or on a VPN or cloud network, it turns requests away for a while, usually 15 minutes to an hour. Wait, then try again. Transcripts are cached once fetched, so regenerating and asking about videos you've already mapped doesn't count against the limit.
+
+**New features fail after updating**
+The page updated, but an older `python app.py` is still running the old server code. Stop it (Ctrl+C) and start it again.
 
 **"Captions are switched off for this video"**
 yapmap reads transcripts, not audio. No captions, no canvas — there's no way around that short of running speech-to-text yourself.

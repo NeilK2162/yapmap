@@ -270,7 +270,7 @@ export function createMindmap(host, opts = {}) {
   }
 
   // ─── selection, interaction ─────────────────────────────────────────────
-  async function select(id, { center = true } = {}) {
+  async function select(id, { center = true, via = 'api' } = {}) {
     if (id && !s.index.has(id)) id = null;
     s.selectedId = id;
     if (id && !isVisible(id)) { revealPath(id); await render(); }
@@ -278,7 +278,7 @@ export function createMindmap(host, opts = {}) {
     if (id && center) ensureVisible(id);
     const it = id ? info(id) : null;
     if (it) announcer.textContent = `${it.label}${typeof it.t === 'number' ? ', at ' + fmt(it.t) : ''}${it.childCount ? `, ${it.childCount} ideas inside` : ''}${it.got ? ', got it' : ''}`;
-    o.onSelect(it);
+    o.onSelect(it, via);
   }
 
   function onClick(e) {
@@ -286,7 +286,7 @@ export function createMindmap(host, opts = {}) {
     const g = e.target.closest('g.markmap-node');
     if (!g) { if (s.selectedId) select(null); return; }
     const d = g.__data__;
-    if (d && d.payload) select(d.payload.id, { center: false });
+    if (d && d.payload) select(d.payload.id, { center: false, via: 'click' });
   }
 
   function onDblClick(e) {
@@ -396,7 +396,7 @@ export function createMindmap(host, opts = {}) {
     if (e.target !== host) return;
     const sel = s.selectedId && s.index.get(s.selectedId);
     const key = e.key;
-    const go = (id) => { if (id) { e.preventDefault(); select(id); } };
+    const go = (id) => { if (id) { e.preventDefault(); select(id, { via: 'key' }); } };
     if (key === 'ArrowRight') {
       if (!sel) return go(rootId());
       if (sel.childIds.length) {
@@ -447,19 +447,38 @@ export function createMindmap(host, opts = {}) {
   // ─── export ─────────────────────────────────────────────────────────────
   const STYLE_PROPS = ['color', 'font-family', 'font-size', 'font-weight', 'line-height', 'letter-spacing', 'background-color',
     'border-radius', 'padding', 'margin-left', 'white-space', 'overflow-wrap', 'word-break', 'display', 'opacity',
-    'text-decoration-line', 'text-align', 'width'];
+    'text-decoration-line', 'text-align', 'width', 'box-sizing'];
 
+  // The export carries its own fonts. Without them the labels reflow in a
+  // fallback font and stop lining up with the branches drawn for them.
   let fontData = null;
-  async function displayFontFace() {
-    if (fontData === null) {
-      try {
-        const buf = await (await fetch('static/fonts/LuckiestGuy-Regular.ttf')).arrayBuffer();
-        let bin = '';
-        const bytes = new Uint8Array(buf);
-        for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-        fontData = `@font-face{font-family:'Luckiest Guy';src:url(data:font/ttf;base64,${btoa(bin)}) format('truetype')}`;
-      } catch (e) { fontData = ''; }
-    }
+  const base64Of = async (url) => {
+    const bytes = new Uint8Array(await (await fetch(url)).arrayBuffer());
+    let bin = '';
+    for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+    return btoa(bin);
+  };
+  async function embeddedFonts() {
+    if (fontData !== null) return fontData;
+    const faces = [];
+    try {
+      faces.push(`@font-face{font-family:'Luckiest Guy';src:url(data:font/ttf;base64,${await base64Of('static/fonts/LuckiestGuy-Regular.ttf')}) format('truetype')}`);
+    } catch (e) { /* the root label falls back */ }
+    try {
+      // The Latin cuts of the page's own Google Fonts: the map's labels and timestamps.
+      const link = document.querySelector('link[href*="fonts.googleapis.com/css2"]');
+      const css = link ? await (await fetch(link.href)).text() : '';
+      const blocks = css.split('@font-face').slice(1).map((b) => '@font-face' + b.slice(0, b.indexOf('}') + 1));
+      const cache = new Map();
+      for (const block of blocks) {
+        if (!/Space Grotesk|JetBrains Mono/.test(block) || !/U\+0000-00FF/.test(block)) continue;
+        const url = (block.match(/url\((https:[^)]+)\)/) || [])[1];
+        if (!url) continue;
+        if (!cache.has(url)) cache.set(url, await base64Of(url));
+        faces.push(block.replace(url, `data:font/woff2;base64,${cache.get(url)}`));
+      }
+    } catch (e) { /* offline: the labels fall back to a system font */ }
+    fontData = faces.join('\n');
     return fontData;
   }
 
@@ -501,7 +520,7 @@ export function createMindmap(host, opts = {}) {
     rect.setAttribute('fill', bg);
     clone.insertBefore(rect, clone.firstChild);
     const style = document.createElementNS(SVG_NS, 'style');
-    style.textContent = await displayFontFace();
+    style.textContent = await embeddedFonts();
     clone.insertBefore(style, clone.firstChild);
     return { text: new XMLSerializer().serializeToString(clone), width: box.width + pad * 2, height: box.height + pad * 2 };
   }

@@ -80,7 +80,7 @@ function pasteForm(ctx) {
     location.hash = '#/v/' + id;
   };
   if (!('ontouchstart' in window)) setTimeout(() => ctx.alive() && input.focus(), 50);
-  return h('form', { class: 'drop', onsubmit: (e) => { e.preventDefault(); go(input.value); } },
+  return h('form', { class: 'paste-form', onsubmit: (e) => { e.preventDefault(); go(input.value); } },
     input,
     h('button', { class: 'cta', type: 'submit' }, 'make it make sense'),
   );

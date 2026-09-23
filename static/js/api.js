@@ -2,7 +2,10 @@
 // Flask; in the GitHub Pages demo (no server) it reads the bundled demo/ files
 // and says so plainly when something needs the real thing.
 
-import { lsGet, lsSet, LANGS } from './util.js';
+import { lsGet, lsSet, LANGS, prefLang } from './util.js';
+
+// Listings show each video in your language when it exists there.
+const langQuery = () => 'lang=' + encodeURIComponent(prefLang());
 
 let mode = null; // 'app' | 'static'
 let health = null;
@@ -175,11 +178,11 @@ export async function getPurge(key) {
 
 // ─── library, search, stats ───────────────────────────────────────────────
 export async function library() {
-  return isStatic() ? demo('index.json') : api('api/library');
+  return isStatic() ? demo('index.json') : api('api/library?' + langQuery());
 }
 
 export async function search(q) {
-  if (!isStatic()) return api('api/search?q=' + encodeURIComponent(q));
+  if (!isStatic()) return api('api/search?q=' + encodeURIComponent(q) + '&' + langQuery());
   const terms = q.toLowerCase().split(/\s+/).filter(Boolean);
   if (!terms.length) return { hits: [], terms };
   const records = await demo('records.json');
@@ -188,7 +191,7 @@ export async function search(q) {
 }
 
 export async function stats() {
-  return isStatic() ? demo('stats.json') : api('api/stats');
+  return isStatic() ? demo('stats.json') : api('api/stats?' + langQuery());
 }
 
 // ─── the review deck (spaced repetition) ──────────────────────────────────
@@ -207,7 +210,7 @@ export function scheduleReview(state, grade, now = new Date()) {
 }
 
 export async function deck() {
-  if (!isStatic()) return api('api/deck');
+  if (!isStatic()) return api('api/deck?' + langQuery());
   const index = await demo('index.json');
   const reviews = lsGet(LS_REVIEWS, {});
   const now = Math.floor(Date.now() / 1000);
