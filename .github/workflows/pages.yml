@@ -24,7 +24,7 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Assemble the site
         run: |
@@ -34,7 +34,6 @@ jobs:
           sed -i 's/<html lang="en"/<html lang="en" data-static="1"/' _site/index.html
           cp -r static _site/static
           cp -r demo _site/demo
-          touch _site/.nojekyll
           # Pages caches files for ten minutes. Version every module and the
           # stylesheet with the commit, so a returning visitor never runs a
           # mix of old and new modules after a deploy.
@@ -43,9 +42,9 @@ jobs:
           sed -i "s#static/css/app.css#static/css/app.css?v=${v}#; s#static/js/main.js\"#static/js/main.js?v=${v}\"#" _site/index.html
           sed -i "s#<!-- yapmap:importmap -->#<script type=\"importmap\">${map}</script>#" _site/index.html
 
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/configure-pages@v6
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: _site
       - id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
